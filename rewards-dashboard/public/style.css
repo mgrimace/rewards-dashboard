@@ -1,0 +1,1165 @@
+/* ==========================================================================
+   01. GLOBAL VARIABLES & DESIGN TOKENS
+   ========================================================================== */
+:root {
+    color-scheme: light dark;
+
+    /* Base Color Tokens (Aligned with ThemePalette Light Definition) */
+    --canvas: #ffffff;
+    --surface: #fafbfb;
+    --surface-alt: #f6f7f8;
+    --hover: #e8ebed;
+    --text: #24292d;
+    --text-muted: #434a51;
+    --text-inverse: #ffffff;
+    --border: #d7dcdf;
+    --border-strong: #b6bec3;
+    --accent: #3882c2;
+    --accent-hover: #1f639e;
+    --accent-subtle: #e0e7f1;
+    --focus: #65a4d7;
+    
+    /* Semantic Actions */
+    --positive: #5f7556;
+    --negative: #E67C7C;
+    
+    /* Layout Properties */
+    --radius: 12px;
+    --shadow: 0 1px 2px rgba(20, 22, 30, 0.06), 0 1px 1px rgba(20, 22, 30, 0.04);
+
+    /* Dynamic Operational Color Blending Mixes */
+    --positive-bg: color-mix(in srgb, var(--positive) 16%, var(--surface));
+    --negative-bg: color-mix(in srgb, var(--negative) 16%, var(--surface));
+    --amber: color-mix(in srgb, var(--negative) 55%, var(--positive) 45%);
+    --amber-bg: color-mix(in srgb, var(--amber) 14%, var(--surface));
+}
+
+
+/* ==========================================================================
+   02. BASE RESETS & GLOBAL ELEMENT STYLES
+   ========================================================================== */
+* { 
+    box-sizing: border-box; 
+}
+
+html, body {
+    margin: 0;
+    padding: 0;
+}
+
+body {
+    background: var(--canvas);
+    color: var(--text);
+    font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+
+/* Accessibility & Utility Anchors */
+.visually-hidden {
+    position: absolute;
+    width: 1px; 
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+}
+
+.skip-link {
+    position: absolute;
+    left: -999px;
+    top: 0;
+    background: var(--accent);
+    color: var(--text-inverse);
+    padding: 0.6rem 1rem;
+    z-index: 100;
+    border-radius: 0 0 6px 0;
+}
+
+.skip-link:focus {
+    left: 0;
+}
+
+a:focus-visible, 
+button:focus-visible, 
+[tabindex]:focus-visible {
+    outline: 2px solid var(--focus);
+    outline-offset: 2px;
+}
+
+/* Reusable UI Components */
+.pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.15rem 0.55rem;
+    border-radius: 999px;
+    font-size: 0.78rem;
+    font-weight: 600;
+}
+.pill-success { background: var(--positive-bg); color: var(--positive); }
+.pill-error { background: var(--negative-bg); color: var(--negative); }
+.pill-running { background: var(--amber-bg); color: var(--amber); }
+.pill-idle { background: var(--border); color: var(--text-muted); }
+
+.link-btn {
+    background: none;
+    border: 1px solid var(--border);
+    color: var(--accent);
+    border-radius: 6px;
+    padding: 0.3rem 0.65rem;
+    font-size: 0.82rem;
+    cursor: pointer;
+    font-weight: 600;
+}
+.link-btn:hover { background: var(--accent-subtle); }
+.link-btn[aria-pressed="true"] {
+    background: var(--accent);
+    color: var(--text-inverse);
+    border-color: var(--accent);
+}
+
+/* Layout Framework Structural Shell */
+main {
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 1.25rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+}
+
+.panel {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    padding: 1.25rem;
+}
+
+.panel h2 {
+    margin: 0 0 1rem;
+    font-size: 1rem;
+}
+
+.panel-subtitle {
+    margin: -0.4rem 0 1rem;
+    font-size: 0.82rem;
+    color: var(--text-muted);
+}
+
+
+/* ==========================================================================
+   03. APPLICATION HEADER BAR (TOPBAR)
+   ========================================================================== */
+.topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    padding: 1rem 1.25rem;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+    position: sticky;
+    top: 0;
+    z-index: 10;
+}
+
+.topbar h1 {
+    font-size: 1.15rem;
+    margin: 0;
+}
+
+.topbar-right {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+}
+
+/* Flex layout helper container for system layout buttons & selectors */
+.controls-group {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+/* Global comfortable button size targeting (Desktop + Mobile) */
+.controls-group .icon-btn {
+    font-size: 1.05rem !important;
+    padding: 4px !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    height: 32px !important;
+    width: 32px !important;
+    min-width: 0 !important;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--surface);
+    color: var(--text);
+    cursor: pointer;
+}
+.controls-group .icon-btn:hover { background: var(--hover); }
+
+/* Global Theme Dropdown scaling to perfectly match header button heights */
+.theme-select {
+    height: 32px !important;
+    padding: 4px 24px 4px 8px !important;
+    font-size: 0.88rem !important;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--surface);
+    color: var(--text);
+    font-weight: 600;
+    cursor: pointer;
+}
+.theme-select:hover { background: var(--hover); }
+
+/* Standardizes the live indicator status badge layout profile globally */
+#statusBadge {
+    margin: 0 !important;
+    flex-shrink: 0 !important;
+    height: 32px !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    padding: 0 10px !important;
+    font-size: 0.85rem !important;
+    font-weight: 600 !important;
+    border-radius: 999px !important;
+}
+
+/* Base status badge components */
+.status-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    background: var(--surface-alt);
+    color: var(--text-muted);
+}
+.status-badge .dot {
+    width: 8px; 
+    height: 8px;
+    border-radius: 50%;
+    background: currentColor;
+}
+.status-live { background: var(--positive-bg); color: var(--positive); }
+.status-warn { background: var(--amber-bg); color: var(--amber); }
+.status-down { background: var(--negative-bg); color: var(--negative); }
+
+.last-event-text {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+}
+.last-event-text.stale {
+    color: var(--negative);
+    font-weight: 600;
+}
+
+/* Active state styling for screenshot mode toggle */
+.icon-btn.anon-active {
+    color: var(--accent) !important;
+}
+
+
+/* ==========================================================================
+   04. MFA INTERSTITIAL ALERTS (LOGIN APPROVAL GATEWAYS)
+   ========================================================================== */
+.login-codes-section {
+    background: var(--amber-bg);
+    border: 2px solid var(--amber);
+    border-radius: var(--radius);
+    padding: 1.1rem 1.25rem;
+    box-shadow: var(--shadow);
+}
+
+.login-codes-section h2 {
+    margin: 0 0 0.75rem;
+    font-size: 1rem;
+    color: var(--text);
+}
+
+.login-codes-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.9rem;
+}
+
+.login-code-card {
+    display: flex;
+    align-items: center;
+    gap: 0.9rem;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 0.7rem 1.1rem;
+    min-width: 220px;
+}
+
+.login-code-number {
+    font-size: 2.4rem;
+    font-weight: 800;
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+    color: var(--accent);
+    min-width: 2.2ch;
+    text-align: center;
+}
+
+.login-code-info {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+}
+
+.login-code-name {
+    font-weight: 600;
+    font-size: 0.95rem;
+}
+
+.login-code-countdown {
+    font-size: 0.8rem;
+    font-variant-numeric: tabular-nums;
+    color: var(--text-muted);
+}
+.login-code-countdown.urgent {
+    color: var(--negative);
+    font-weight: 700;
+}
+
+
+/* ==========================================================================
+   05. HISTORICAL STATUS STATISTIC CARDS (REFRESHED BOX VIEWPORTS)
+   ========================================================================== */
+.stat-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+    gap: 0.85rem;
+}
+
+.stat-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    padding: 0.9rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.65rem;
+    min-height: 145px; /* Consistent square ratio footprints on dashboard grids */
+}
+
+/* Internal Lighter High-Contrast Data Blocks */
+.stat-block-chip {
+    background: var(--surface-alt);
+    border-radius: 8px;
+    padding: 0.65rem 0.85rem;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    justify-content: center;
+    width: 100%;
+    min-height: 72px;
+}
+
+/* Target scaling for long datetime text elements */
+.chip-sm-wrap {
+    padding: 0.65rem 0.65rem !important;
+}
+
+.stat-num-val {
+    font-size: 1.85rem;
+    font-weight: 800;
+    line-height: 1;
+    color: var(--text);
+    letter-spacing: -0.02em;
+}
+
+.stat-value-sm {
+    font-size: 1.1rem;
+    font-weight: 700;
+    line-height: 1.2;
+}
+
+/* Context Faded Subtext Label Elements Inside Main Block */
+.stat-block-unit {
+    font-size: 0.72rem;
+    color: var(--text-muted);
+    font-weight: 600;
+    text-transform: lowercase;
+    margin-top: 0.25rem;
+    opacity: 0.8;
+}
+
+/* Bottom Label Alignment Sequences */
+.stat-title-row {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    padding-left: 0.15rem;
+}
+
+.stat-label {
+    margin: 0;
+    font-size: 0.76rem;
+    color: var(--text-muted);
+    font-weight: 600;
+    letter-spacing: 0.01em;
+    line-height: 1.2;
+}
+
+/* Aesthetic Indicator Check Icon Hooks */
+.stat-icon-check {
+    color: var(--positive);
+    background: var(--positive-bg);
+    width: 15px;
+    height: 15px;
+    border-radius: 50%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.65rem;
+    font-weight: 800;
+    flex-shrink: 0;
+}
+
+.stat-icon-alert {
+    color: var(--positive);
+    background: var(--positive-bg);
+    width: 15px;
+    height: 15px;
+    border-radius: 50%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.65rem;
+    font-weight: 800;
+    flex-shrink: 0;
+}
+
+.stat-icon-running {
+    color: var(--amber);
+    background: var(--amber-bg);
+    width: 15px;
+    height: 15px;
+    border-radius: 50%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.65rem;
+    font-weight: 800;
+    flex-shrink: 0;
+}
+
+/* Dynamic State Styling Applied via app.js Dynamic Injection Controls */
+.badge-active-errors {
+    background: var(--negative-bg) !important;
+}
+.badge-active-errors .stat-num-val {
+    color: var(--negative) !important;
+}
+.badge-active-errors .stat-block-unit {
+    color: var(--negative) !important;
+}
+.icon-alert-active {
+    background: var(--negative-bg) !important;
+    color: var(--negative) !important;
+}
+
+
+/* ==========================================================================
+   06. DAILY POINT ACCUMULATION TIMELINES
+   ========================================================================== */
+.accum-list {
+    display: flex;
+    flex-direction: column;
+    gap: 1.1rem;
+}
+
+/* Row Metadatablocks */
+.accum-row-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-bottom: 0.3rem;
+    font-size: 0.85rem;
+    gap: 0.5rem;
+}
+
+.accum-row-name {
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.accum-row-total {
+    color: var(--text-muted);
+    flex-shrink: 0;
+    font-variant-numeric: tabular-nums;
+}
+
+.accum-row-today {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 0.5rem;
+    margin: 0 0 0.4rem;
+    font-size: 0.78rem;
+    color: var(--text-muted);
+}
+
+.accum-row-today-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.accum-row-today-pts {
+    flex-shrink: 0;
+    font-variant-numeric: tabular-nums;
+}
+
+/* Physical Chronological Visual Timeline Track */
+.accum-track {
+    position: relative;
+    background: var(--surface-alt);
+    border-radius: 8px;
+    padding: 4px;
+    overflow-x: auto;
+}
+
+.accum-track::before {
+    content: "";
+    position: absolute;
+    left: 6px;
+    right: 6px;
+    top: 50%;
+    height: 2px;
+    transform: translateY(-50%);
+    background: color-mix(in srgb, var(--border) 70%, transparent);
+    border-radius: 999px;
+    pointer-events: none;
+}
+
+.accum-bar {
+    position: relative;
+    display: flex;
+    align-items: center; 
+    justify-content: flex-end;
+    height: 28px;
+    border-radius: 6px;
+    width: fit-content;
+    overflow: visible;
+    gap: 0;
+}
+
+/* Metric Nodes & Status Indicators */
+.accum-day {
+    width: 12px;
+    border-radius: 3px;
+    position: relative;
+    margin: 0 2px;
+    cursor: default;
+    flex: 0 0 12px;
+    transition: transform 0.15s ease;
+}
+.accum-day:hover {
+    transform: scale(1.15);
+    z-index: 2;
+}
+
+.accum-day--a { background: var(--accent); }
+.accum-day--b { background: var(--accent-hover); }
+
+.accum-bar > .accum-day:last-child {
+}
+
+.accum-gap {
+    align-self: center;
+    height: 6px;
+    border-radius: 999px;
+    transform: scaleY(0.8);
+    flex: 0 0 auto;
+    opacity: 0.85;
+    transition: opacity 0.15s ease;
+    margin: 0;
+}
+.accum-gap:hover {
+    opacity: 1;
+}
+
+.accum-gap--warn {
+    background: var(--amber);
+    box-shadow: 0 0 4px var(--amber);
+}
+
+.accum-gap--bad {
+    background: var(--negative);
+    box-shadow: 0 0 4px var(--negative);
+    background-image: repeating-linear-gradient(90deg, transparent 0 4px, currentColor 4px 8px);
+}
+
+.accum-week-marker {
+    position: relative;
+    width: 1px;
+    align-self: stretch;
+    flex: 0 0 1px;
+    background: repeating-linear-gradient(
+        to bottom,
+        var(--border-strong) 0px,
+        var(--border-strong) 3px,
+        transparent 3px,
+        transparent 7px
+    );
+    margin: 0 5px;
+    border-radius: 0;
+    opacity: 0.65;
+}
+
+/* Invisible expanded hit area — no layout impact */
+.accum-week-marker::after {
+    content: '';
+    position: absolute;
+    top: -6px;
+    bottom: -6px;
+    left: -8px;
+    right: -8px;
+}
+
+.accum-week-label {
+    display: none;
+}
+
+
+/* ==========================================================================
+   07. RELATIONAL DATA TABLES & CHART SECTIONS
+   ========================================================================== */
+.chart-wrap {
+    position: relative;
+    height: 260px;
+}
+
+.empty-note {
+    color: var(--text-muted);
+    font-style: italic;
+    padding: 0.5rem 0;
+}
+
+.table-wrap {
+    overflow-x: auto;
+}
+
+table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.9rem;
+    border: none !important;
+}
+
+th {
+    color: var(--text-muted);
+    font-weight: 600;
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.02em;
+}
+
+th, td {
+    text-align: left;
+    padding: 0.6rem 0.7rem;
+    border-top: none !important;
+    border-left: none !important;
+    border-right: none !important;
+    border-bottom: 1px dotted var(--border) !important;
+    white-space: nowrap;
+}
+
+tbody tr:hover {
+    background: var(--hover);
+}
+
+
+/* ==========================================================================
+   08. REAL-TIME LOG DIAGNOSTIC FEED STREAMS
+   ========================================================================== */
+.activity-feed {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    max-height: 420px;
+    overflow-y: auto;
+    overflow-x: auto;
+    display: flex;
+    flex-direction: column;
+}
+
+.activity-item {
+    display: flex;
+    gap: 0.8rem;
+    align-items: center;
+    padding: 0.6rem 0.25rem;
+    font-size: 0.85rem;
+    white-space: nowrap;
+    width: max-content;
+    min-width: 100%;
+    -webkit-text-size-adjust: 100% !important;
+    -moz-text-size-adjust: 100% !important;
+    text-size-adjust: 100% !important;
+}
+
+.activity-item:not(:last-child) {
+    border-bottom: 1px dotted var(--border) !important;
+}
+
+.activity-time {
+    color: var(--text-muted);
+    font-variant-numeric: tabular-nums;
+    flex-shrink: 0;
+    font-size: 0.78rem;
+    min-width: 4.5rem;
+}
+
+.activity-tag {
+    flex-shrink: 0;
+    font-weight: 700;
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    padding: 0.1rem 0.4rem;
+    border-radius: 4px;
+}
+.tag-info { background: var(--surface-alt); color: var(--text-muted); }
+.tag-success { background: var(--positive-bg); color: var(--positive); }
+.tag-warn { background: var(--amber-bg); color: var(--amber); }
+.tag-error { background: var(--negative-bg); color: var(--negative); }
+
+
+/* ==========================================================================
+   09. HERO ACCOUNT OVERVIEW PANEL
+   ========================================================================== */
+
+.hero-panel {
+    padding: 0 !important;
+    overflow: hidden;
+}
+
+.hero-panel-header {
+    display: flex;
+    align-items: baseline;
+    gap: 0.75rem;
+    padding: 1.1rem 1.25rem 0.85rem;
+    border-bottom: 1px solid var(--border);
+}
+
+.hero-panel-header h2 {
+    margin: 0;
+    font-size: 1rem;
+}
+
+.hero-panel-subtitle {
+    font-size: 0.8rem;
+    color: var(--text-muted);
+}
+
+/* Per-account rows: bar cell left, account card right — naturally aligned */
+.hero-layout {
+    display: flex;
+    flex-direction: column;
+}
+
+.hero-row {
+    display: grid;
+    grid-template-columns: 1fr 340px;
+    border-bottom: 1px solid var(--border);
+}
+
+.hero-row:last-child {
+    border-bottom: none;
+}
+
+/* Left cell — bar chart in the dark "photo box" area */
+.hero-bar-cell {
+    background: var(--surface-alt);
+    border-right: 1px solid var(--border);
+    padding: 0.85rem 1.25rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+    overflow-x: auto;
+}
+
+/* Bar track grows to fill the full row height */
+.hero-bar-cell .accum-track {
+    flex: 1;
+    min-height: 38px;
+    overflow-y: hidden;
+}
+
+/* Suppress center line — row dividers replace it */
+.hero-bar-cell .accum-track::before {
+    display: none;
+}
+
+.hero-bar-cell .accum-bar {
+    height: 100%;
+    min-height: 38px;
+}
+
+/* Right cell — account data */
+.hero-acc-card {
+    display: flex;
+    align-items: center;
+    gap: 0.85rem;
+    padding: 0.9rem 1.1rem;
+    transition: background 0.12s ease;
+    min-width: 0;
+}
+
+.hero-acc-card:hover {
+    background: var(--hover);
+}
+
+/* Points chip — centered, stat-card inner box style */
+.hero-acc-pts {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    width: 115px;
+    min-height: 62px;
+    background: var(--surface-alt);
+    border-radius: 8px;
+    padding: 0.5rem 0.65rem;
+    text-align: center;
+}
+
+.hero-pts-num {
+    font-size: 1.45rem;
+    font-weight: 800;
+    line-height: 1;
+    letter-spacing: -0.03em;
+    font-variant-numeric: tabular-nums;
+    color: var(--text);
+    white-space: nowrap;
+}
+
+.hero-pts-unit {
+    font-size: 0.69rem;
+    font-weight: 600;
+    color: var(--text-muted);
+    margin-top: 0.2rem;
+}
+
+/* Account info — right of points chip */
+.hero-acc-info {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+}
+
+.hero-acc-name {
+    font-weight: 600;
+    font-size: 0.88rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.hero-acc-meta {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    flex-wrap: wrap;
+}
+
+.hero-acc-today {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    font-size: 0.78rem;
+    color: var(--text-muted);
+    white-space: nowrap;
+}
+
+.hero-acc-check {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    font-size: 0.6rem;
+    font-weight: 900;
+    flex-shrink: 0;
+    line-height: 1;
+}
+
+.hero-acc-check--ok      { background: var(--positive-bg); color: var(--positive); }
+.hero-acc-check--error   { background: var(--negative-bg); color: var(--negative); }
+.hero-acc-check--running { background: var(--amber-bg);    color: var(--amber); }
+.hero-acc-check--idle    { background: var(--surface-alt); color: var(--text-muted); border: 1px solid var(--border); }
+
+.hero-acc-sub {
+    font-size: 0.74rem;
+    color: var(--text-muted);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.hero-sub-running {
+    color: var(--amber);
+    font-weight: 600;
+}
+
+.hero-acc-error {
+    font-size: 0.73rem;
+    color: var(--negative);
+    font-style: italic;
+    margin-top: 0.1rem;
+    white-space: normal;
+}
+
+.hero-acc-actions {
+    flex-shrink: 0;
+}
+
+
+/* ==========================================================================
+   10. GLOBAL ATTRIBUTION FOOTER
+   ========================================================================== */
+.foot {
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 0 1.25rem 2rem;
+    color: var(--text-muted);
+    font-size: 0.8rem;
+}
+
+
+/* ==========================================================================
+   10. CONSOLIDATED RESPONSIVE ARCHITECTURE MEDIA ENGINES
+   ========================================================================== */
+
+@media (prefers-color-scheme: dark) {
+    :root {
+        --canvas: #161a1d;
+        --surface: #1a1e21;
+        --surface-alt: #1e2225;
+        --hover: #262c31;
+        --text: #d2d4d5;
+        --text-muted: #b1b6b9;
+        --text-inverse: #161a1d;
+        --border: #2c343a;
+        --border-strong: #343f46;
+        --accent: #2769b4;
+        --accent-hover: #4d8fdb;
+        --accent-subtle: #1c2431;
+        --focus: #4d8fdb;
+        --positive: #87a07a;
+        --negative: #c45858;
+        --shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+    }
+}
+
+@media (max-width: 600px) {
+    .login-codes-list { 
+        flex-direction: column; 
+    }
+    .login-code-card { 
+        min-width: 0; 
+    }
+}
+
+/* Master Mobile Framework Engine (<= 768px) */
+@media (max-width: 768px) {
+    .topbar { 
+        flex-direction: column !important;
+        align-items: flex-start !important;
+        gap: 10px !important;
+        padding: 0.85rem 1rem !important; 
+    }
+    .topbar h1 {
+        margin: 0 !important;
+        width: 100% !important;
+    }
+    
+    .topbar-right {
+        width: 100% !important;
+        display: flex !important;
+        flex-direction: row !important;
+        justify-content: space-between !important;
+        align-items: center !important;
+        gap: 12px !important;
+    }
+
+    .controls-group {
+        margin-left: 0 !important;
+        justify-content: flex-start !important;
+        gap: 8px !important;
+        flex-grow: 1 !important;
+    }
+
+    main { 
+        padding: 1rem !important; 
+        gap: 1.1rem !important; 
+    }
+    th, td { 
+        padding: 0.5rem !important; 
+        font-size: 0.82rem !important; 
+    }
+    .panel { 
+        padding: 0.85rem !important; 
+    }
+    .panel h2 {
+        margin: 0 0 0.5rem 0 !important;
+        font-size: 0.9rem !important;
+    }
+
+    /* High-Density Inline Mobile Rows */
+    .stat-grid {
+        display: flex !important;
+        flex-direction: column !important;
+        gap: 0.35rem !important;
+    }
+
+    .stat-card {
+        padding: 0.45rem 0.65rem !important;
+        border-radius: 8px !important;
+        box-shadow: none !important;
+        display: flex !important;
+        flex-direction: row-reverse !important;
+        justify-content: space-between !important;
+        align-items: center !important;
+        background: var(--surface) !important;
+        border: 1px dashed var(--border) !important;
+        min-height: 0 !important;
+        gap: 0.5rem !important;
+    }
+
+    .stat-block-chip {
+        background: transparent !important;
+        padding: 0 !important;
+        min-height: 0 !important;
+        width: auto !important;
+        flex-direction: row !important;
+        align-items: center !important;
+        gap: 0.25rem;
+        justify-content: flex-end !important;
+        text-align: right !important;
+    }
+
+    .stat-num-val {
+        font-size: 1.05rem !important;
+        font-weight: 700 !important;
+    }
+
+    .stat-value-sm {
+        font-size: 0.92rem !important;
+        max-width: 55vw !important;
+        white-space: nowrap !important;
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
+    }
+
+    .stat-block-unit {
+        display: none !important;
+    }
+
+    .stat-title-row {
+        padding-left: 0 !important;
+    }
+
+    .stat-label {
+        font-size: 0.78rem !important;
+    }
+
+    .stat-icon-check, .stat-icon-alert {
+        width: 13px !important;
+        height: 13px !important;
+        font-size: 0.55rem !important;
+    }
+
+    /* Tracker Micro-Metrics Scaling */
+    .accum-list {
+        gap: 0.6rem !important;
+    }
+    .accum-row-header {
+        font-size: 0.78rem !important;
+        margin-bottom: 0.2rem !important;
+    }
+    .accum-row-today {
+        font-size: 0.72rem !important;
+        margin: 0 0 0.25rem 0 !important;
+    }
+    .accum-track {
+        padding: 2px !important;
+        border-radius: 5px !important;
+    }
+    .accum-track::before {
+        height: 1px !important;
+    }
+    .accum-bar {
+        height: 18px !important;
+    }
+    .accum-day {
+        width: 8px !important;
+        flex: 0 0 8px !important;
+        margin: 0 1px !important;
+        border-radius: 1.5px !important;
+    }
+    .accum-week-marker {
+        width: 1px !important;
+        flex: 0 0 1px !important;
+        margin: 0 4px !important;
+    }
+
+    /* Hero panel mobile: 3-day mini bars stay inline with account card */
+    .hero-row {
+        grid-template-columns: 96px 1fr !important;
+    }
+
+    .hero-bar-cell {
+        border-right: 1px solid var(--border) !important;
+        border-bottom: none !important;
+        padding: 0.5rem 0.35rem !important;
+        min-height: 0 !important;
+    }
+
+    /* Prevent scrollbar in the narrow mini bar cell */
+    .hero-bar-cell .accum-track {
+        overflow-x: hidden !important;
+        /* Fade older (left) days strongly into the background */
+        -webkit-mask-image: linear-gradient(to right, transparent 0%, rgba(0,0,0,0.15) 28%, black 70%);
+        mask-image: linear-gradient(to right, transparent 0%, rgba(0,0,0,0.15) 28%, black 70%);
+    }
+
+    .hero-bar-cell .accum-bar {
+        height: 100% !important;
+        min-height: 36px !important;
+    }
+
+    .hero-acc-pts {
+        width: 72px !important;
+        min-height: 50px !important;
+    }
+
+    .hero-pts-num {
+        font-size: 1.1rem !important;
+    }
+
+    .hero-acc-card {
+        padding: 0.7rem 0.85rem !important;
+        gap: 0.65rem !important;
+    }
+
+    .hero-acc-name {
+        font-size: 0.82rem !important;
+    }
+
+    /* Trend button not practical on mobile — hidden to free layout space */
+    .hero-acc-actions {
+        display: none !important;
+    }
+}

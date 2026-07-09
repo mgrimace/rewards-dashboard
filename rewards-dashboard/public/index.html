@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#ffffff">
+<title>Microsoft Rewards Dashboard</title>
+<link rel="stylesheet" href="/style.css">
+<style>
+    /* Desktop layout alignment tuning to center stats contents horizontally */
+    @media (min-width: 769px) {
+        .stat-card {
+            align-items: center !important;
+            justify-content: center !important;
+            text-align: center !important;
+        }
+        .stat-block-chip {
+            align-items: center !important;
+            justify-content: center !important;
+        }
+        .stat-title-row {
+            justify-content: center !important;
+            padding-left: 0 !important;
+        }
+    }
+</style>
+</head>
+<body>
+<a class="skip-link" href="#main">Skip to main content</a>
+
+<header class="topbar">
+    <h1>🏅 Rewards Dashboard</h1>
+    <div class="topbar-right">
+        <p id="statusBadge" class="status-badge status-unknown" role="status" aria-live="polite">
+            <span class="dot" aria-hidden="true"></span>
+            <span id="statusText">Connecting&hellip;</span>
+        </p>
+        <div class="controls-group">
+            <button type="button" id="anonToggle" class="icon-btn" aria-label="Obfuscate names for screenshots" title="Obfuscate names for screenshots">
+                <span id="anonIcon" aria-hidden="true">&#128065;</span>
+            </button>
+
+            <button type="button" id="modeToggle" class="icon-btn" aria-label="Switch to dark mode" title="Switch to dark mode">
+                <span id="modeIcon" aria-hidden="true">&#9789;</span>
+            </button>
+            
+            <div class="theme-select-wrapper">
+                <label for="themeSelect" class="visually-hidden">Theme</label>
+                <select id="themeSelect" class="theme-select"></select>
+            </div>
+        </div>
+    </div>
+</header>
+
+<main id="main">
+    <section id="loginCodesSection" class="login-codes-section" hidden aria-labelledby="login-codes-heading">
+        <h2>&#128273; Login approval needed</h2>
+        <div id="loginCodesList" class="login-codes-list"></div>
+    </section>
+    <div id="loginCodesAnnounce" class="visually-hidden" aria-live="assertive" aria-atomic="true"></div>
+
+    <section aria-labelledby="stats-heading" class="stats">
+        <h2 id="stats-heading" class="visually-hidden">Summary</h2>
+        <div class="stat-grid" id="statGrid">
+            
+            <div class="stat-card">
+                <div class="stat-block-chip">
+                    <span class="stat-num-val" id="statAccounts">&ndash;</span>
+                    <span class="stat-block-unit">profiles</span>
+                </div>
+                <div class="stat-title-row">
+                    <span class="stat-icon-check" aria-hidden="true">✓</span>
+                    <span class="stat-label">Accounts tracked</span>
+                </div>
+            </div>
+
+            <div class="stat-card">
+                <div class="stat-block-chip">
+                    <span class="stat-num-val" id="statLastGained">&ndash;</span>
+                    <span class="stat-block-unit">points</span>
+                </div>
+                <div class="stat-title-row">
+                    <span class="stat-icon-check" aria-hidden="true">✓</span>
+                    <span class="stat-label">Points earned last run</span>
+                </div>
+            </div>
+
+            <div class="stat-card">
+                <div class="stat-block-chip chip-sm-wrap">
+                    <span class="stat-num-val stat-value-sm" id="statLastRun">&ndash;</span>
+                    <span class="stat-block-unit">timestamp</span>
+                </div>
+                <div class="stat-title-row">
+                    <span class="stat-icon-check" id="statLastRunIcon" aria-hidden="true">✓</span>
+                    <span class="stat-label">Last run</span>
+                </div>
+            </div>
+
+            <div class="stat-card">
+                <div class="stat-block-chip" id="statErrorsBox">
+                    <span class="stat-num-val" id="statErrors">&ndash;</span>
+                    <span class="stat-block-unit">errors</span>
+                </div>
+                <div class="stat-title-row">
+                    <span class="stat-icon-alert" id="statErrorsAlertIcon" aria-hidden="true">✓</span>
+                    <span class="stat-label">Errors during last run</span>
+                </div>
+            </div>
+
+            <div class="stat-card">
+                <div class="stat-block-chip chip-sm-wrap">
+                    <span class="stat-num-val stat-value-sm" id="statSchedule">&ndash;</span>
+                    <span class="stat-block-unit" id="statTimezone">UTC</span>
+                </div>
+                <div class="stat-title-row">
+                    <span class="stat-icon-check" aria-hidden="true">✓</span>
+                    <span class="stat-label">Schedule</span>
+                </div>
+            </div>
+            
+        </div>
+    </section>
+
+    <section aria-labelledby="hero-heading" class="panel hero-panel">
+        <div class="hero-panel-header">
+            <h2 id="hero-heading">Accounts</h2>
+            <span class="hero-panel-subtitle">Daily tracker &amp; account summary</span>
+        </div>
+        <div class="hero-layout" id="heroRows">
+            <p class="empty-note" style="padding:1.25rem">Loading&hellip;</p>
+        </div>
+    </section>
+
+    <section aria-labelledby="account-chart-heading" class="panel" id="accountChartSection" hidden>
+        <h2 id="account-chart-heading">Point history &mdash; <span id="accountChartName"></span></h2>
+        <div class="chart-wrap">
+            <canvas id="accountChart" role="img" aria-label="Line chart of point totals over time for the selected account"></canvas>
+        </div>
+    </section>
+
+    <section aria-labelledby="activity-heading" class="panel">
+        <h2 id="activity-heading">Recent activity</h2>
+        <ul id="activityFeed" class="activity-feed" aria-live="polite">
+            <li class="empty-note">Loading activity&hellip;</li>
+        </ul>
+    </section>
+</main>
+
+<footer class="foot">
+    <p>Reads container logs only &mdash; the bot itself is never modified. Refreshes automatically every 20s.</p>
+</footer>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<script type="module" src="/app.js"></script>
+</body>
+</html>

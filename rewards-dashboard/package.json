@@ -1,0 +1,13 @@
+{
+  "name": "rewards-dashboard",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Companion log-parsing dashboard for Microsoft-Rewards-Script. Reads the bot container's logs via the Docker Engine API; makes no changes to the bot itself.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=22.13.0"
+  }
+}

@@ -1,0 +1,32 @@
+services:
+    docker-socket-proxy:
+        image: tecnativa/docker-socket-proxy:latest
+        container_name: rewards-dashboard-socket-proxy
+        restart: unless-stopped
+        volumes:
+            - /var/run/docker.sock:/var/run/docker.sock:ro
+        environment:
+            LOG_LEVEL: 'warning'
+            CONTAINERS: 1
+            PING: 1
+            VERSION: 1
+        security_opt:
+            - no-new-privileges:true
+
+    rewards-dashboard:
+        build:
+            context: ./rewards-dashboard
+        container_name: rewards-dashboard
+        restart: unless-stopped
+        depends_on:
+            - docker-socket-proxy
+        ports:
+            - '8890:8890'
+        environment:
+            TARGET_CONTAINER: 'microsoft-rewards-script'
+            PORT: '8890'
+            DOCKER_HOST: 'rewards-dashboard-socket-proxy:2375'
+        volumes:
+            - ./data:/data
+        security_opt:
+            - no-new-privileges:true
