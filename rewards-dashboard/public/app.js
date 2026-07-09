@@ -655,3 +655,15 @@ window.matchMedia('(max-width: 768px)').addEventListener('change', () => refresh
 refreshLoginCodes()
 setInterval(refreshLoginCodes, LOGIN_CODES_POLL_MS)
 setInterval(renderLoginCodes, 1000)
+
+if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+        navigator.serviceWorker.register('/sw.js')
+            .then(reg => {
+                console.log('Service worker registered:', reg.scope)
+            })
+            .catch(err => {
+                console.warn('Service worker registration failed:', err)
+            })
+    })
+}

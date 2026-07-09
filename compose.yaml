@@ -14,8 +14,7 @@ services:
             - no-new-privileges:true
 
     rewards-dashboard:
-        build:
-            context: ./rewards-dashboard
+        image: ghcr.io/mgrimace/rewards-dashboard:latest
         container_name: rewards-dashboard
         restart: unless-stopped
         depends_on:

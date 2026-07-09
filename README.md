@@ -20,10 +20,10 @@ A simple companion dashboard for [microsoft-rewards-script](https://github.com/t
 > [!TIP]
 > Use the privacy toggle (eye/sunglasses icon) when taking screenshots or copying logs.
 
-## Setup
+## Quick start
 
-1. Clone the repo (prebuilt image coming eventually)
-2. Build and start the container locally using `docker compose up -d --build`
+1. Review the provided Docker `compose.yaml`
+2. Build and start the container using `docker compose up -d`
 
 > [!TIP]
 > If you've changed the name of your microsoft-rewards-script container, change `TARGET_CONTAINER: 'microsoft-rewards-script'` to match.
@@ -31,7 +31,7 @@ A simple companion dashboard for [microsoft-rewards-script](https://github.com/t
 3. Visit the dash at `http://<host-ip>:8890`.
 
 > [!TIP]
-> You can alternatively add the services in this compose to your microsoft-rewards-script `compose.yaml` for a single stack. Temp note: since it's built locally you will also need to copy the /rewards-dashboard folder into your script folder.
+> You can alternatively add the services in this compose to your microsoft-rewards-script `compose.yaml` for a single stack.
 
 ## Configuration
 

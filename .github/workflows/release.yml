@@ -1,0 +1,76 @@
+name: Release
+
+# Run only when a Git tag is pushed (example: v1.0.0)
+on:
+  push:
+    tags:
+      - 'v*'
+
+# Required for publishing to GHCR and creating GitHub Releases
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  release:
+    name: Build, Publish, and Release
+    runs-on: ubuntu-latest
+
+    steps:
+      # Fetch repository content for Docker build context
+      - name: Checkout
+        uses: actions/checkout@v4
+
+
+      # Enable arm64 emulation so we can build multi-arch on GitHub-hosted runners
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      # Create and configure a Buildx builder instance
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # Authenticate to GitHub Container Registry using GITHUB_TOKEN
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Derive image name and tag from the pushed Git tag
+      - name: Prepare image metadata
+        id: meta
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME}"
+          IMAGE="ghcr.io/${GITHUB_REPOSITORY,,}"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "image=$IMAGE" >> "$GITHUB_OUTPUT"
+
+      # Build and push multi-architecture image with both latest and version tags
+      - name: Build and push multi-arch image
+        uses: docker/build-push-action@v6
+        with:
+          context: rewards-dashboard
+          file: rewards-dashboard/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ${{ steps.meta.outputs.image }}:latest
+            ${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.tag }}
+
+      # Create a GitHub Release from the pushed tag and auto-generate notes
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.meta.outputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG already exists. Skipping creation."
+          else
+            gh release create "$TAG" --title "$TAG" --generate-notes
+          fi
