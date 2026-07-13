@@ -1,4 +1,4 @@
-'use strict'
+"use strict";
 
 /**
  * A tiny, purpose-built TypeScript -> JS transform for theme palette files
@@ -21,53 +21,59 @@
  */
 
 function stripBraceBlocks(source, startRe) {
-    let out = ''
-    let lastIndex = 0
-    const re = new RegExp(startRe.source, 'g')
-    let match
-    while ((match = re.exec(source))) {
-        const start = match.index
-        const braceStart = source.indexOf('{', start)
-        if (braceStart === -1) break
-        out += source.slice(lastIndex, start)
-        let depth = 0
-        let j = braceStart
-        for (; j < source.length; j++) {
-            if (source[j] === '{') depth++
-            else if (source[j] === '}') {
-                depth--
-                if (depth === 0) { j++; break }
-            }
+  let out = "";
+  let lastIndex = 0;
+  const re = new RegExp(startRe.source, "g");
+  let match;
+  while ((match = re.exec(source))) {
+    const start = match.index;
+    const braceStart = source.indexOf("{", start);
+    if (braceStart === -1) break;
+    out += source.slice(lastIndex, start);
+    let depth = 0;
+    let j = braceStart;
+    for (; j < source.length; j++) {
+      if (source[j] === "{") depth++;
+      else if (source[j] === "}") {
+        depth--;
+        if (depth === 0) {
+          j++;
+          break;
         }
-        lastIndex = j
-        re.lastIndex = j
+      }
     }
-    out += source.slice(lastIndex)
-    return out
+    lastIndex = j;
+    re.lastIndex = j;
+  }
+  out += source.slice(lastIndex);
+  return out;
 }
 
 function transformThemeModule(source) {
-    let out = source
+  let out = source;
 
-    // Type-only imports: nothing at runtime needs these.
-    out = out.replace(/^[ \t]*import\s+type\s+\{[^}]*\}\s+from\s+['"][^'"]+['"]\s*;?\s*$/gm, '')
+  // Type-only imports: nothing at runtime needs these.
+  out = out.replace(
+    /^[ \t]*import\s+type\s+\{[^}]*\}\s+from\s+['"][^'"]+['"]\s*;?\s*$/gm,
+    "",
+  );
 
-    // `export interface X { ... }` blocks (brace-aware for nested types).
-    out = stripBraceBlocks(out, /export\s+interface\s+\w+\s*/g)
+  // `export interface X { ... }` blocks (brace-aware for nested types).
+  out = stripBraceBlocks(out, /export\s+interface\s+\w+\s*/g);
 
-    // `export type X = ...` lines.
-    out = out.replace(/^[ \t]*export\s+type\s+\w+\s*=.*$/gm, '')
+  // `export type X = ...` lines.
+  out = out.replace(/^[ \t]*export\s+type\s+\w+\s*=.*$/gm, "");
 
-    // `: TypeName` annotation on an exported const declaration.
-    out = out.replace(/(export\s+const\s+\w+)\s*:\s*[\w.<>[\]]+(\s*=)/g, '$1$2')
+  // `: TypeName` annotation on an exported const declaration.
+  out = out.replace(/(export\s+const\s+\w+)\s*:\s*[\w.<>[\]]+(\s*=)/g, "$1$2");
 
-    // Extensionless relative specifiers -> add .ts so native ESM resolves.
-    out = out.replace(/from\s+(['"])(\.[^'"]+)\1/g, (full, quote, spec) => {
-        if (/\.[a-zA-Z0-9]+$/.test(spec)) return full
-        return `from ${quote}${spec}.ts${quote}`
-    })
+  // Extensionless relative specifiers -> add .ts so native ESM resolves.
+  out = out.replace(/from\s+(['"])(\.[^'"]+)\1/g, (full, quote, spec) => {
+    if (/\.[a-zA-Z0-9]+$/.test(spec)) return full;
+    return `from ${quote}${spec}.ts${quote}`;
+  });
 
-    return out
+  return out;
 }
 
-module.exports = { transformThemeModule }
+module.exports = { transformThemeModule };

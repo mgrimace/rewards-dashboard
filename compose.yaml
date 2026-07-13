@@ -1,31 +1,88 @@
-services:
-    docker-socket-proxy:
-        image: tecnativa/docker-socket-proxy:latest
-        container_name: rewards-dashboard-socket-proxy
-        restart: unless-stopped
-        volumes:
-            - /var/run/docker.sock:/var/run/docker.sock:ro
-        environment:
-            LOG_LEVEL: 'warning'
-            CONTAINERS: 1
-            PING: 1
-            VERSION: 1
-        security_opt:
-            - no-new-privileges:true
+# Standalone dashboard for Microsoft-Rewards-Script.
+#
+# This stack is ONLY the dashboard. The bot and its Control API live in the
+# Microsoft-Rewards-Script repo (scripts/api/server.js) and are run from there.
+# The dashboard just talks HTTP to that API — no Docker socket access needed.
+#
+#   [bot repo] node scripts/api/server.js  --HTTP+token-->  [this dashboard]
+#
+# CONTROL_API_TOKEN below must equal the API's API_TOKEN. Put it in a .env file
+# next to this compose.yaml (compose picks it up automatically):
+#
+#   CONTROL_API_TOKEN=<same value as the Control API's API_TOKEN>
 
-    rewards-dashboard:
-        image: ghcr.io/mgrimace/rewards-dashboard:latest
-        container_name: rewards-dashboard
-        restart: unless-stopped
-        depends_on:
-            - docker-socket-proxy
-        ports:
-            - '8890:8890'
-        environment:
-            TARGET_CONTAINER: 'microsoft-rewards-script'
-            PORT: '8890'
-            DOCKER_HOST: 'rewards-dashboard-socket-proxy:2375'
-        volumes:
-            - ./data:/data
-        security_opt:
-            - no-new-privileges:true
+services:
+  rewards-dashboard:
+    build:
+      context: ./rewards-dashboard
+    container_name: rewards-dashboard
+    restart: unless-stopped
+    ports:
+      - "8890:8890"
+    environment:
+      PORT: "8890"
+
+      # URL of the bot's Control API (scripts/api/server.js).
+      #  - If the Control API runs as a container on a shared Docker
+      #    network, use its service/container name, e.g.
+      #    http://microsoft-rewards-script:3010
+      #  - If it runs on the Docker host, use
+      #    http://host.docker.internal:3010 and uncomment extra_hosts below.
+      CONTROL_API_URL: "http://microsoft-rewards-script:3010"
+
+      # Shared secret — must match the Control API's API_TOKEN. Sourced
+      # from your shell / a .env file beside this compose.yaml. Leave it
+      # unset only if the API runs without a token.
+      CONTROL_API_TOKEN: "${CONTROL_API_TOKEN:-}"
+
+      # Your timezone, so the daily point buckets line up (e.g.
+      # Europe/Amsterdam). Defaults to UTC.
+      TZ: "UTC"
+
+      # Optional.
+      # DASHBOARD_TITLE: 'Microsoft Rewards'
+      # POLL_MS: '5000'      # status poll; logs are streamed
+      # LOG_REPLAY: '300'    # log lines replayed when the stream connects
+
+    # The dashboard is the only side that stores anything: point history,
+    # runs, activity and the schedule, all in ./data/dashboard.sqlite. The
+    # bot's Control API is stateless and writes nothing.
+    volumes:
+      - ./data:/data
+    security_opt:
+      - no-new-privileges:true
+
+    # Uncomment if the Control API runs on the Docker host rather than in a
+    # container on this network:
+    # extra_hosts:
+    #     - 'host.docker.internal:host-gateway'
+
+    # Alternatively, join the bot's existing Docker network so you can reach
+    # the Control API by its service name:
+    # networks:
+    #     - rewards-net
+
+# networks:
+#     rewards-net:
+#         external: true
+
+# ---------------------------------------------------------------------------
+# For reference, the OTHER side of the pair. Add something like this to the bot
+# repo's own compose file (not here) so the Control API is reachable — note the
+# identical token.
+#
+#     microsoft-rewards-script:
+#         build: .
+#         command: node scripts/api/server.js
+#         environment:
+#             API_HOST: '0.0.0.0'        # required, or the container isn't reachable
+#             API_PORT: '3010'
+#             API_TOKEN: '${CONTROL_API_TOKEN:-}'
+#             API_CORS_ORIGIN: 'http://localhost:8890'
+#
+#             # The dashboard's Config tab is read-only unless the API allows
+#             # writes; secrets stay redacted unless the API allows revealing.
+#             API_ALLOW_CONFIG_WRITE: 'true'
+#             API_ALLOW_CONFIG_REVEAL: 'false'
+#         ports:
+#             - '3010:3010'              # only needed for host access / debugging
