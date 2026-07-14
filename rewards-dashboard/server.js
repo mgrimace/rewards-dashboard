@@ -21,6 +21,11 @@ const PORT = Number(process.env.PORT || 8890);
 const CONTROL_API_URL =
   process.env.CONTROL_API_URL || "http://microsoft-rewards-script:3010";
 const CONTROL_API_TOKEN = process.env.CONTROL_API_TOKEN || "";
+const DASHBOARD_USERNAME = process.env.DASHBOARD_USERNAME || "";
+const DASHBOARD_PASSWORD = process.env.DASHBOARD_PASSWORD || "";
+const DASHBOARD_AUTH_ENABLED = Boolean(
+  DASHBOARD_USERNAME && DASHBOARD_PASSWORD,
+);
 const DISPLAY_NAME = process.env.DASHBOARD_TITLE || "Microsoft Rewards";
 const TIMEZONE = process.env.TZ || "UTC";
 const POLL_MS = Math.max(1000, Number(process.env.POLL_MS || 5000));
@@ -249,31 +254,36 @@ function safeEqual(value, expected) {
   return left.length === right.length && crypto.timingSafeEqual(left, right);
 }
 
-function requestToken(req) {
+function requestBasicCredentials(req) {
   const authorization = req.headers.authorization;
-  if (
-    typeof authorization === "string" &&
-    authorization.startsWith("Bearer ")
-  ) {
-    return authorization.slice(7).trim();
+  if (typeof authorization !== "string") return null;
+
+  const match = authorization.match(/^Basic\s+(.+)$/i);
+  if (!match) return null;
+
+  try {
+    const decoded = Buffer.from(match[1], "base64").toString("utf8");
+    const separator = decoded.indexOf(":");
+    if (separator < 0) return null;
+
+    return {
+      username: decoded.slice(0, separator),
+      password: decoded.slice(separator + 1),
+    };
+  } catch {
+    return null;
   }
-  if (typeof authorization === "string" && authorization.startsWith("Basic ")) {
-    try {
-      const decoded = Buffer.from(authorization.slice(6), "base64").toString(
-        "utf8",
-      );
-      const separator = decoded.indexOf(":");
-      return separator >= 0 ? decoded.slice(separator + 1) : null;
-    } catch {
-      return null;
-    }
-  }
-  const apiKey = req.headers["x-api-key"];
-  return typeof apiKey === "string" ? apiKey.trim() : null;
 }
 
 function isDashboardAuthorized(req) {
-  return !CONTROL_API_TOKEN || safeEqual(requestToken(req), CONTROL_API_TOKEN);
+  if (!DASHBOARD_AUTH_ENABLED) return true;
+
+  const credentials = requestBasicCredentials(req);
+  return (
+    credentials !== null &&
+    safeEqual(credentials.username, DASHBOARD_USERNAME) &&
+    safeEqual(credentials.password, DASHBOARD_PASSWORD)
+  );
 }
 
 function requireDashboardAuth(res) {
@@ -604,9 +614,15 @@ server.listen(PORT, () => {
       "CONTROL_API_TOKEN is empty - this only works if the Control API runs without an API_TOKEN.",
     );
   }
+  if (Boolean(DASHBOARD_USERNAME) !== Boolean(DASHBOARD_PASSWORD)) {
+    log(
+      "warn",
+      "Dashboard authentication is disabled because both DASHBOARD_USERNAME and DASHBOARD_PASSWORD must be set.",
+    );
+  }
   log(
     "info",
-    `Dashboard authentication: ${CONTROL_API_TOKEN ? "enabled (shared Control API token)" : "disabled"}`,
+    `Dashboard authentication: ${DASHBOARD_AUTH_ENABLED ? `enabled (user: ${DASHBOARD_USERNAME})` : "disabled"}`,
   );
   scheduler.init();
   backend.schedule = describeSchedule(scheduler.get());

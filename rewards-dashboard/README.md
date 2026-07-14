@@ -32,16 +32,20 @@ cp .env.example .env      # edit CONTROL_API_URL + CONTROL_API_TOKEN
 npm start                 # http://localhost:8890
 ```
 
-There is one shared authentication token. Set `API_TOKEN` on the Control API
-and set `CONTROL_API_TOKEN` to the exact same value on the dashboard. When it
-is set, every dashboard page/API request and every Control API endpoint requires
-that token; browsers display their normal Basic-auth prompt. If both values are
-unset, authentication is disabled on both sides.
+Dashboard login protection is configured separately with `DASHBOARD_USERNAME`
+and `DASHBOARD_PASSWORD`. Basic authentication is enabled only when both values
+are non-empty. Leave either one empty to open the dashboard without a browser
+login prompt. This does not disable authentication between the dashboard and the
+Control API; `CONTROL_API_TOKEN` still needs to match the API's `API_TOKEN`.
 
 Or with Docker, from the parent directory:
 
 ```bash
-echo "CONTROL_API_TOKEN=some-long-random-string" > .env
+cat > .env <<'EOF'
+CONTROL_API_TOKEN=some-long-random-string
+DASHBOARD_USERNAME=admin
+DASHBOARD_PASSWORD=use-a-different-long-password
+EOF
 docker compose up -d --build
 ```
 
@@ -86,7 +90,7 @@ Above the tabs, a control strip is always visible: **Start**, **Stop**, **Restar
 
 **Live points.** The bot prints its balance and every gain as it earns them, and the API folds those lines into a running tally (`GET /points`). So the Overview shows points climbing _during_ a run, not just the final total. When an account finishes, the live tally is replaced by the authoritative `ACCOUNT-END` numbers.
 
-**One token protects both services.** The browser authenticates to the dashboard with the shared token, and the dashboard sends that same value to the Control API as a Bearer token. Configure it as `API_TOKEN` on the API and `CONTROL_API_TOKEN` on the dashboard.
+**Separate authentication layers.** `CONTROL_API_TOKEN` is sent only from the dashboard to the Control API as a Bearer token and must match the API's `API_TOKEN`. Browser access uses the optional `DASHBOARD_USERNAME` and `DASHBOARD_PASSWORD` pair instead.
 
 **No dependencies.** Charts are hand-rolled inline SVG (`public/charts.js`) that read their colors from CSS variables, so they follow the theme and work offline. The 14 themes from the original dashboard are untouched.
 
@@ -94,16 +98,18 @@ Above the tabs, a control strip is always visible: **Start**, **Stop**, **Restar
 
 ## Environment
 
-| Variable            | Default                                |                                                                                           |
-| ------------------- | -------------------------------------- | ----------------------------------------------------------------------------------------- |
-| `CONTROL_API_URL`   | `http://microsoft-rewards-script:3010` | Where the Control API listens                                                             |
-| `CONTROL_API_TOKEN` | -                                      | Shared token protecting the dashboard; must match the API's `API_TOKEN`                   |
-| `PORT`              | `8890`                                 |                                                                                           |
-| `TZ`                | `UTC`                                  | Buckets points into days - set it                                                         |
-| `DASHBOARD_TITLE`   | `Microsoft Rewards`                    | Header title                                                                              |
-| `POLL_MS`           | `5000`                                 | Status poll interval (logs are streamed)                                                  |
-| `LOG_REPLAY`        | `300`                                  | Log lines to replay when the stream connects                                              |
-| `DATA_DIR`          | `./data`                               | Where `dashboard.sqlite` lives - the only folder anything writes to. Docker sets `/data`. |
+| Variable              | Default                                |                                                                                           |
+| --------------------- | -------------------------------------- | ----------------------------------------------------------------------------------------- |
+| `CONTROL_API_URL`     | `http://microsoft-rewards-script:3010` | Where the Control API listens                                                             |
+| `CONTROL_API_TOKEN`   | -                                      | Bearer token sent to the Control API; must match the API's `API_TOKEN`                    |
+| `DASHBOARD_USERNAME`  | -                                      | Optional Basic-auth username; auth is enabled only when username and password are set     |
+| `DASHBOARD_PASSWORD`  | -                                      | Optional Basic-auth password; leave either dashboard credential empty to disable login    |
+| `PORT`                | `8890`                                 |                                                                                           |
+| `TZ`                  | `UTC`                                  | Buckets points into days - set it                                                         |
+| `DASHBOARD_TITLE`     | `Microsoft Rewards`                    | Header title                                                                              |
+| `POLL_MS`             | `5000`                                 | Status poll interval (logs are streamed)                                                  |
+| `LOG_REPLAY`          | `300`                                  | Log lines to replay when the stream connects                                              |
+| `DATA_DIR`            | `./data`                               | Where `dashboard.sqlite` lives - the only folder anything writes to. Docker sets `/data`. |
 
 ---
 
@@ -112,6 +118,8 @@ Above the tabs, a control strip is always visible: **Start**, **Stop**, **Restar
 **"Control API unreachable"** - the dashboard can't open a TCP connection. Check `CONTROL_API_URL`. In Docker, `localhost` means the dashboard's own container: use the API's service name, or `host.docker.internal` with `extra_hosts`.
 
 **"Control API rejected our token"** - `CONTROL_API_TOKEN` ≠ `API_TOKEN`.
+
+**Browser login prompt does not appear** - both `DASHBOARD_USERNAME` and `DASHBOARD_PASSWORD` must be non-empty. Authentication is intentionally disabled when either value is empty.
 
 **Saving config returns 403** - the API was started without `API_ALLOW_CONFIG_WRITE=true`.
 
