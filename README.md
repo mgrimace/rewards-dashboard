@@ -1,3 +1,6 @@
+> [!WARNING]
+> In active development to support the new [microsoft-rewards-script](https://github.com/thenetsky/microsoft-rewards-script) API
+
 # Rewards Dashboard
 
 A simple companion dashboard for [microsoft-rewards-script](https://github.com/thenetsky/microsoft-rewards-script) that reads the bot's container logs and shows account status, point totals, and trends at `http://<host-ip>:8890`. It makes zero changes to the bot itself.
