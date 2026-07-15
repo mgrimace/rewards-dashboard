@@ -152,8 +152,12 @@ function renderStats(root, status) {
     ),
     statCard(
       "statLastRun",
-      lastRun ? U.fmtRelative(lastRun.endTs || lastRun.startTs) : "\u2013",
-      "timestamp",
+      anyRunning
+        ? "Running now"
+        : lastRun
+          ? U.fmtRelative(lastRun.endTs || lastRun.startTs)
+          : "\u2013",
+      anyRunning ? "" : "timestamp",
       "Last run",
       anyRunning ? "stat-icon-running" : "stat-icon-check",
       anyRunning ? "\u25CF" : "\u2713",
