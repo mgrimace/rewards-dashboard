@@ -9,7 +9,7 @@ const { ControlApiClient, entryToDockerLine } = require("./lib/apiClient");
 const { EventHub } = require("./lib/eventHub");
 const { parseLine } = require("./lib/parser");
 const { Store } = require("./lib/store");
-const { describeCron, isValidCron } = require("./lib/cron");
+const { describeCron, isValidCron, nextRun } = require("./lib/cron");
 const { Scheduler } = require("./lib/scheduler");
 const { transformThemeModule } = require("./lib/tsLite");
 const { generateIndexModule, THEMES_DIR } = require("./lib/themeLoader");
@@ -73,6 +73,24 @@ function describeSchedule(sched) {
   };
 }
 
+// The bot's cron lives inside its own container and has no concept of
+// "next run" bookkeeping — it's computed here client-side from the same
+// cron grammar the dashboard already uses, purely for display. The actual
+// firing is up to the container's OS cron, not this calculation.
+function describeRemoteSchedule(sched) {
+  if (!sched) return null;
+  const next =
+    sched.enabled && sched.cron ? nextRun(sched.cron, new Date()) : null;
+  return {
+    ...sched,
+    description:
+      sched.enabled && sched.cron
+        ? describeCron(sched.cron) || sched.cron
+        : "Not scheduled",
+    nextRunAt: next ? next.toISOString() : null,
+  };
+}
+
 const AUTH_HINT =
   "Control API rejected our token - CONTROL_API_TOKEN must match the API's API_TOKEN.";
 
@@ -88,6 +106,8 @@ const backend = {
   uptimeSec: null,
   bot: null, // last /status payload
   schedule: null,
+  remoteSchedule: null, // last GET /schedule payload from the bot's Control API
+  remoteScheduleSupported: null, // null = unknown yet, true/false once determined
 };
 
 let lastLogId = null;
@@ -110,6 +130,8 @@ function currentState() {
     botState: backend.bot ? backend.bot.state : "unknown",
     botRunning: Boolean(backend.bot && backend.bot.state !== "idle"),
     schedule: backend.schedule,
+    remoteSchedule: describeRemoteSchedule(backend.remoteSchedule),
+    remoteScheduleSupported: backend.remoteScheduleSupported === true,
     stream: hub.stats,
     lastEventAt: store.lastTs,
     codes: pendingLoginCodes.list(),
@@ -205,6 +227,18 @@ async function pollOnce() {
     if (e.statusCode === 401) authFailed = true;
     backend.lastError =
       e.statusCode === 401 ? AUTH_HINT : `Status unavailable (${e.message})`;
+  }
+
+  // The bot's own /schedule endpoint is optional - older bot images (or ones
+  // running without API_ALLOW_SCHEDULE_WRITE) won't have it. A 404 means
+  // "not supported, hide the remote scheduler option"; any other error is
+  // treated as a transient blip so the UI doesn't flicker the option away.
+  try {
+    backend.remoteSchedule = await client.get("/schedule");
+    backend.remoteScheduleSupported = true;
+  } catch (e) {
+    backend.remoteSchedule = null;
+    if (e.statusCode === 404) backend.remoteScheduleSupported = false;
   }
 
   backend.schedule = describeSchedule(scheduler.get());
@@ -488,12 +522,52 @@ async function handleApi(req, res, url) {
 
   // schedule
   if (pathname === "/api/schedule") {
-    if (method === "GET")
-      return sendJson(res, 200, describeSchedule(scheduler.get()));
+    if (method === "GET") {
+      return sendJson(res, 200, {
+        local: describeSchedule(scheduler.get()),
+        remote: describeRemoteSchedule(backend.remoteSchedule),
+        remoteSupported: backend.remoteScheduleSupported === true,
+      });
+    }
     if (method === "PUT") {
       const body = await readJsonBody(req);
+      const target = body.target === "remote" ? "remote" : "local";
+      const patch = { ...body };
+      delete patch.target;
+
+      if (target === "remote") {
+        if (backend.remoteScheduleSupported !== true) {
+          return sendJson(res, 409, {
+            error:
+              "The bot's Control API does not support remote scheduling. Upgrade the bot image and set API_ALLOW_SCHEDULE_WRITE=true, or use the dashboard's own scheduler instead.",
+          });
+        }
+        try {
+          const updated = await client.put("/schedule", patch);
+          backend.remoteSchedule = updated;
+          hub.broadcast("state", currentState());
+          return sendJson(res, 200, {
+            local: describeSchedule(scheduler.get()),
+            remote: describeRemoteSchedule(updated),
+            remoteSupported: true,
+          });
+        } catch (e) {
+          const status = e.statusCode || 502;
+          const payload =
+            e.body && typeof e.body === "object"
+              ? e.body
+              : { error: e.message || "Control API unreachable" };
+          return sendJson(res, status, payload);
+        }
+      }
+
       try {
-        return sendJson(res, 200, describeSchedule(scheduler.set(body)));
+        const updated = scheduler.set(patch);
+        return sendJson(res, 200, {
+          local: describeSchedule(updated),
+          remote: describeRemoteSchedule(backend.remoteSchedule),
+          remoteSupported: backend.remoteScheduleSupported === true,
+        });
       } catch (e) {
         return sendJson(res, e.code === "BAD_REQUEST" ? 400 : 500, {
           error: e.message,

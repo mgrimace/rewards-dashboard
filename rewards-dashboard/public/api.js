@@ -47,8 +47,13 @@ export const api = {
   errors: (limit = 100) => call("GET", `/api/errors?limit=${limit}`),
   loginCodes: () => call("GET", "/api/login-codes"),
 
+  // schedule() returns { local, remote, remoteSupported }. saveSchedule's
+  // `target` selects which scheduler the patch applies to: "local" (this
+  // dashboard's own cron, default) or "remote" (the bot container's cron,
+  // via its Control API's /schedule endpoint).
   schedule: () => call("GET", "/api/schedule"),
-  saveSchedule: (patch) => call("PUT", "/api/schedule", patch),
+  saveSchedule: (patch, target = "local") =>
+    call("PUT", "/api/schedule", { ...patch, target }),
   describeCron: (expr) =>
     call("GET", `/api/cron?expr=${encodeURIComponent(expr)}`),
 

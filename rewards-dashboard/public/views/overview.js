@@ -85,6 +85,42 @@ function sourceBreakdown(account) {
     : "";
 }
 
+function activeSchedule(status) {
+  const local = status?.schedule || null;
+  const remote = status?.remoteScheduleSupported ? status?.remoteSchedule : null;
+  const localOn = Boolean(local?.enabled);
+  const remoteOn = Boolean(remote?.enabled);
+
+  if (localOn && remoteOn) {
+    // Both firing is worth flagging rather than silently picking one to show.
+    return {
+      description: `${local.description} + ${remote.description}`,
+      enabled: true,
+      both: true,
+      timezone: status?.timezone || "UTC",
+    };
+  }
+  if (remoteOn) {
+    return {
+      description: remote.description,
+      enabled: true,
+      timezone: remote.timezone || status?.timezone || "UTC",
+    };
+  }
+  if (localOn) {
+    return {
+      description: local.description,
+      enabled: true,
+      timezone: status?.timezone || "UTC",
+    };
+  }
+  return {
+    description: local?.description || remote?.description || "Not scheduled",
+    enabled: false,
+    timezone: status?.timezone || "UTC",
+  };
+}
+
 function renderStats(root, status) {
   const accounts = data?.accounts || [];
   const runs = data?.runs || [];
@@ -93,6 +129,7 @@ function renderStats(root, status) {
   const errorCount = accounts.filter((a) => a.status === "error").length;
   const anyRunning = accounts.some((a) => a.status === "running");
   const combined = accounts.reduce((sum, a) => sum + (a.lastPoints || 0), 0);
+  const sched = activeSchedule(status);
 
   U.$("#statGrid", root).innerHTML = [
     statCard(
@@ -131,11 +168,15 @@ function renderStats(root, status) {
     ),
     statCard(
       "statSchedule",
-      U.escapeHtml(status?.schedule?.description || "\u2013"),
-      status?.timezone || "UTC",
-      "Schedule",
-      status?.schedule?.enabled ? "stat-icon-check" : "stat-icon-idle",
-      status?.schedule?.enabled ? "\u2713" : "\u2013",
+      U.escapeHtml(sched.description || "\u2013"),
+      sched.timezone || "UTC",
+      sched.both ? "Schedule (2 active)" : "Schedule",
+      sched.both
+        ? "stat-icon-alert icon-alert-active"
+        : sched.enabled
+          ? "stat-icon-check"
+          : "stat-icon-idle",
+      sched.both ? "!" : sched.enabled ? "\u2713" : "\u2013",
     ),
   ].join("");
 }

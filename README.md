@@ -24,12 +24,29 @@ A companion dashboard for [microsoft-rewards-script](https://github.com/thenetsk
 ## Quick start (Docker)
 
 1. On the bot side, enable the Control API — set `API_MODE=true` and `API_TOKEN=<some-long-random-string>` on the `microsoft-rewards-script` service, and expose port `3010`.
+
+> [!TIP]
+> Also enable the `API_ALLOW_SCHEDULE_WRITE` and `API_ALLOW__CONFIG_WRITE` on the script side to allow the dashboard to modify the script's config and scheduler.
+
 2. Review this repo's `compose.yaml` and set `CONTROL_API_TOKEN` (in a `.env` file next to it) to that same token.
 3. Build and start the container: `docker compose up -d`.
 4. Visit the dash at `http://<host-ip>:8890`.
 
-> [!TIP]
+> [!WARNING]
 > Both services need to share a Docker network so the dashboard can reach the Control API by container name. 
+> The easiest way to do this is copy the full rewards-dashboard service into your script's compose.yaml.
+> Alternatively, create a docker network (e..g, `rewards`), and add the following to both the script and the dash compose.yaml
+
+```yaml
+  networks:
+    - rewards
+
+networks:
+  rewards:
+    driver: bridge
+    external: true
+
+```
 
 ## Quick start (Bare metal)
 Requires Node 22.13+ (uses the built-in `node:sqlite`). Zero npm packages.

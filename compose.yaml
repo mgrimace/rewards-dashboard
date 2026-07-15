@@ -1,8 +1,7 @@
 services:
   rewards-dashboard:
-    image: ghcr.io/mgrimace/rewards-dashboard:latest
-    #build:
-      #context: ./rewards-dashboard
+    build:
+      context: ./rewards-dashboard
     container_name: rewards-dashboard
     restart: unless-stopped
     ports:
@@ -32,9 +31,11 @@ services:
       # POLL_MS: '5000'      # status poll; logs are streamed
       # LOG_REPLAY: '300'    # log lines replayed when the stream connects
 
-    # The dashboard is the only side that stores anything: point history,
-    # runs, activity and the schedule, all in ./data/dashboard.sqlite. The
-    # bot's Control API is stateless and writes nothing.
+    # The dashboard stores point history, runs, activity and its own
+    # schedule, all in ./data/dashboard.sqlite. The bot's Control API is
+    # otherwise stateless; the one exception is config/schedule.json on the
+    # bot side, written only if you enable API_ALLOW_SCHEDULE_WRITE there and
+    # use the "Bot container" scheduler from this dashboard's Schedule tab.
     volumes:
       - ./data:/data
     security_opt:
