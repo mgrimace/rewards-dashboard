@@ -1,14 +1,13 @@
 services:
   rewards-dashboard:
-    build:
-      context: ./rewards-dashboard
+    image: ghcr.io/mgrimace/rewards-dashboard:latest
+    #build:
+    #  context: ./rewards-dashboard
     container_name: rewards-dashboard
     restart: unless-stopped
     ports:
       - "8890:8890"
     environment:
-      PORT: "8890"
-
       # URL of the bot's Control API (scripts/api/server.js).
       #  - If the Control API runs as a container on a shared Docker
       #    network, use its service/container name, e.g.

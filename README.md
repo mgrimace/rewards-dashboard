@@ -4,7 +4,6 @@ A companion dashboard for [microsoft-rewards-script](https://github.com/thenetsk
 
 > [!WARNING]
 > In active development to support the microsoft-rewards-script new API features. 
-> Docker users should continue to use the script's inbuilt scheduler rather than the dashboard scheduler to avoid duplicate/conflicting runs.
 
 ## Screenshots
 
@@ -34,7 +33,7 @@ A companion dashboard for [microsoft-rewards-script](https://github.com/thenetsk
 
 > [!WARNING]
 > Both services need to share a Docker network so the dashboard can reach the Control API by container name. 
-> The easiest way to do this is copy the full rewards-dashboard service into your script's compose.yaml.
+> The easiest way to do this is copy the full rewards-dashboard service into your script's compose.yaml. See [sample-stack-compose.yaml](sample-stack-compose.yaml)
 > Alternatively, create a docker network (e..g, `rewards`), and add the following to both the script and the dash compose.yaml
 
 ```yaml
