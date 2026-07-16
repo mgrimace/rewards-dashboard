@@ -2020,16 +2020,17 @@ tbody tr:hover {
   }
   .stat-value-sm {
     font-size: 0.92rem;
-    max-width: 55vw;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    white-space: normal;
+    overflow: visible;
+    text-overflow: clip;
+    word-break: keep-all;
   }
   .stat-block-unit {
     display: none;
   }
   .stat-label {
     font-size: 0.78rem;
+    word-break: keep-all;
   }
 
   .accum-track {
