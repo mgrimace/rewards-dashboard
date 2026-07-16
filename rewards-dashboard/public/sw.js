@@ -5,7 +5,7 @@ const ASSETS = [
   '/style.css',
   '/app.js',
   '/manifest.json',
-  '/medal-icon.svg',
+  '/icon.png',
   'https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js'
 ]
 

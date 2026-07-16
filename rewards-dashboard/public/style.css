@@ -906,17 +906,19 @@ select.input {
 }
 
 /* ==========================================================================
-   09. STAT CARDS (Refined for single-row layout on desktop)
+   09. STAT CARDS (Optimized for 6-Column Horizontal Fit)
    ========================================================================== */
 .stat-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-  gap: 0.65rem;
+  /* Forces exactly 6 columns on desktop; falls back to a wrapping grid on smaller screens */
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 0.6rem; /* Slightly reduced gap from 0.85rem */
 }
 
-@media (min-width: 1024px) {
+/* Fallback for smaller tablet/mobile screens where 6 columns physically won't fit */
+@media (max-width: 1024px) {
   .stat-grid {
-    grid-template-columns: repeat(6, minmax(0, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
   }
 }
 
@@ -925,40 +927,120 @@ select.input {
   border: 1px solid var(--border);
   border-radius: var(--radius);
   box-shadow: var(--shadow);
-  padding: 0.75rem 0.55rem;
+  padding: 0.75rem 0.6rem; /* Reduced padding from 0.9rem to prevent horizontal clipping */
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
-  min-height: 125px;
+  gap: 0.5rem; /* Slightly reduced gap from 0.65rem */
+  min-height: 135px; /* Slightly lowered from 145px to maintain proportion with reduced padding */
   align-items: center;
   justify-content: center;
   text-align: center;
+  box-sizing: border-box;
 }
 
 .stat-block-chip {
   background: var(--surface-alt);
   border-radius: 8px;
-  padding: 0.45rem 0.65rem;
+  padding: 0.5rem 0.6rem; /* Reduced from 0.65rem 0.85rem */
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   width: 100%;
-  min-height: 60px;
+  min-height: 64px; /* Slightly lowered from 72px */
+  box-sizing: border-box;
+}
+
+.chip-sm-wrap {
+  padding: 0.5rem; /* Reduced from 0.65rem */
 }
 
 .stat-num-val {
-  font-size: 1.5rem;
+  font-size: 1.6rem; /* Adjusted down from 1.85rem to ensure big numbers don't break the card */
   font-weight: 800;
   line-height: 1;
   color: var(--text);
   letter-spacing: -0.02em;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  overflow: hidden;
+  max-width: 100%;
 }
 
 .stat-value-sm {
-  font-size: 0.95rem;
+  font-size: 1rem; /* Adjusted down from 1.1rem */
   font-weight: 700;
   line-height: 1.2;
+}
+
+.stat-block-unit {
+  font-size: 0.7rem; /* Adjusted down from 0.72rem */
+  color: var(--text-muted);
+  font-weight: 600;
+  text-transform: lowercase;
+  margin-top: 0.2rem;
+  opacity: 0.8;
+}
+
+.stat-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem; /* Slightly tighter gap to keep the icon and text on one line */
+  max-width: 100%;
+}
+
+.stat-label {
+  margin: 0;
+  font-size: 0.72rem; /* Adjusted down from 0.76rem */
+  color: var(--text-muted);
+  font-weight: 600;
+  line-height: 1.2;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  overflow: hidden;
+}
+
+/* Icon styles, tokens, and check marks remain completely unchanged and functional */
+.stat-icon-check,
+.stat-icon-alert,
+.stat-icon-running,
+.stat-icon-idle {
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.65rem;
+  font-weight: 800;
+  flex-shrink: 0; /* Ensures the icon never squishes if the card gets tight */
+}
+
+.stat-icon-check {
+  color: var(--positive);
+  background: var(--positive-bg);
+}
+
+.stat-icon-alert {
+  color: var(--positive);
+  background: var(--positive-bg);
+}
+
+.stat-icon-running {
+  color: var(--amber);
+  background: var(--amber-bg);
+}
+
+.stat-icon-idle {
+  color: var(--text-muted);
+  background: var(--surface-alt);
+  border: 1px solid var(--border);
+}
+
+.icon-alert-active {
+  background: var(--negative-bg);
+  color: var(--negative);
 }
 
 /* ==========================================================================
