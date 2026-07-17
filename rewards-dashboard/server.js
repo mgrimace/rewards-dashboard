@@ -632,6 +632,17 @@ async function handleApi(req, res, url) {
     }
   }
 
+  // sessions
+  if (pathname === "/api/sessions" && method === "GET") {
+    return forward(res, "GET", "/sessions");
+  }
+
+  if (pathname.startsWith("/api/sessions/") && method === "DELETE") {
+    const email = pathname.slice("/api/sessions/".length);
+    if (!email) return sendJson(res, 400, { error: "Missing account email" });
+    return forward(res, "DELETE", `/sessions/${email}`);
+  }
+
   // control
   if (pathname.startsWith("/api/control/") && method === "POST") {
     const action = pathname.slice("/api/control/".length);

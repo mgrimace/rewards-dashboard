@@ -66,6 +66,10 @@ export const api = {
   diagnosticFile: (name, file) =>
     `/api/diagnostics/${encodeURIComponent(name)}/${encodeURIComponent(file)}`,
 
+  sessions: () => call("GET", "/api/sessions"),
+  clearSession: (email) =>
+    call("DELETE", `/api/sessions/${encodeURIComponent(email)}`),
+
   control: (action, body = {}) => call("POST", `/api/control/${action}`, body),
 };
 

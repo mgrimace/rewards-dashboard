@@ -49,6 +49,9 @@ const els = {
   loginCodesSection: U.$("#loginCodesSection"),
   loginCodesList: U.$("#loginCodesList"),
   loginCodesAnnounce: U.$("#loginCodesAnnounce"),
+  footerStatus: U.$("#footerStatus"),
+  footerRefresh: U.$("#footerRefresh"),
+  footerUpdated: U.$("#footerUpdated"),
 };
 
 const state = {
@@ -195,6 +198,7 @@ async function refreshActive(force) {
   if (force) invalidate();
   try {
     await view.refresh(ctx);
+    renderFooter();
   } catch (e) {
     console.error(`[${view.id}] refresh failed`, e);
   }
@@ -245,6 +249,7 @@ function applyState(next) {
   setCodes(next.codes || []);
   renderStatusBadge();
   renderControlStrip();
+  renderFooter();
   currentView()?.onState?.(next, ctx);
 }
 
@@ -279,6 +284,30 @@ function renderStatusBadge() {
     els.statusText.textContent = "Connected";
   }
   badge.title = s?.lastError || "";
+}
+
+function renderFooter() {
+    // Use the els object instead of querying the DOM every time
+    const { footerStatus, footerRefresh, footerUpdated } = els;
+
+    if (!footerStatus) return;
+
+    const s = state.status;
+
+    footerStatus.textContent =
+        !s
+            ? "Connecting…"
+            : !s.reachable
+                ? "Disconnected"
+                : s.botRunning
+                    ? "Running"
+                    : "Connected";
+
+    footerRefresh.textContent =
+        `Auto-refresh ${(currentView()?.interval ?? 0) / 1000}s`;
+
+    footerUpdated.textContent =
+        `Updated ${new Date().toLocaleTimeString()}`;
 }
 
 function renderControlStrip() {

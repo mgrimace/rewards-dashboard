@@ -226,9 +226,30 @@ main {
 }
 .panel-head > .btn,
 .panel-head > .check,
-.panel-head > .seg {
+.panel-head > .seg,
+.panel-head > .acc-detail-actions {
   margin-left: auto;
   align-self: center;
+}
+
+.acc-detail-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.acc-detail-group + .acc-detail-group {
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border);
+}
+.acc-detail-group-title {
+  margin: 0 0 0.5rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
 }
 
 .panel-sub {
@@ -548,6 +569,45 @@ main {
 .btn-primary:hover:not(:disabled) {
   background: var(--accent-hover);
   border-color: var(--accent-hover);
+}
+
+.btn-danger {
+  border-color: var(--negative);
+  color: var(--negative);
+}
+.btn-danger:hover:not(:disabled) {
+  background: var(--negative-bg);
+}
+
+.session-card-list {
+  display: flex;
+  flex-direction: column;
+}
+.session-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.7rem 0.25rem;
+  border-bottom: 1px solid var(--border);
+}
+.session-card:last-child {
+  border-bottom: none;
+}
+.session-card-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 0;
+}
+.session-card-email {
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+.session-card-meta {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
 }
 
 .btn-icon {
@@ -1704,57 +1764,29 @@ tbody tr:hover {
   padding: 1rem;
   border-radius: 8px;
 }
-/* Isolated styles for accounts.js row layout */
 .account-today-row {
   display: flex;
-  gap: 0.75rem;
-  align-items: flex-start;
+  gap: 0.6rem;
+  align-items: baseline;
+  flex-wrap: wrap;
   margin-top: 1.25rem;
   padding: 0 1rem 1rem 1rem;
 }
 
 .account-today-label {
-  font-weight: 600;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
   flex-shrink: 0;
-  margin-top: 0.2rem;
 }
 
 .account-today-chips {
   display: flex;
   flex-wrap: wrap;
   gap: 0.4rem;
-  flex: 1;
   align-items: center;
-}
-
-/* Container aligned to the left edge of the action group */
-.account-today-actions {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start; /* Left-aligns button content and text underneath */
-  gap: 0.35rem;
-  margin-left: auto;
-  flex-shrink: 0;
-}
-
-.account-today-actions .btn[data-run-account] {
-  padding: 0.5rem 1.25rem;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 2.2rem;
-  font-weight: 600;
-  line-height: 1.2;
-  width: 100%;
-}
-
-/* Subtle, un-themed plain text status indicator */
-.account-status-text {
-  font-size: 0.78rem;
-  font-weight: 500;
-  padding-left: 0.1rem;
-  opacity: 0.75;
-  line-height: 1.2;
 }
 
 .hero-panel {
@@ -2094,6 +2126,12 @@ tbody tr:hover {
   .panel h2 {
     font-size: 0.9rem;
   }
+  .hero-panel-header {
+    padding: 0.85rem 0.85rem 0.65rem;
+  }
+  .hero-panel {
+    padding: 0;
+  }
   th,
   td {
     padding: 0.5rem;
@@ -2166,33 +2204,13 @@ tbody tr:hover {
   }
 
   .hero-row {
-    grid-template-columns: 96px 1fr;
+    grid-template-columns: 1fr;
   }
   .hero-bar-cell {
-    padding: 0.5rem 0.35rem;
-    min-height: 0;
-  }
-  .hero-bar-cell .accum-track {
-    overflow-x: hidden;
-    -webkit-mask-image: linear-gradient(
-      to right,
-      transparent 0%,
-      rgba(0, 0, 0, 0.15) 28%,
-      black 70%
-    );
-    mask-image: linear-gradient(
-      to right,
-      transparent 0%,
-      rgba(0, 0, 0, 0.15) 28%,
-      black 70%
-    );
-  }
-  .hero-bar-cell .accum-bar {
-    height: 100%;
-    min-height: 36px;
+    display: none;
   }
   .hero-acc-pts {
-    width: 72px;
+    width: 84px;
     min-height: 50px;
   }
   .hero-pts-num {
@@ -2224,18 +2242,7 @@ tbody tr:hover {
   }
 
   .account-today-row {
-    flex-direction: column;
-    align-items: stretch;
-    gap: 0.6rem;
     padding: 0 0.25rem 0.5rem;
-  }
-  .account-today-actions {
-    margin-left: 0;
-    width: 100%;
-    align-items: flex-start;
-  }
-  .account-today-actions .btn[data-run-account] {
-    width: 100%;
   }
 
   .log-box {
@@ -2289,14 +2296,8 @@ tbody tr:hover {
 }
 
 @media (max-width: 420px) {
-  .hero-row {
-    grid-template-columns: 60px 1fr;
-  }
-  .hero-bar-cell {
-    padding: 0.5rem 0.25rem;
-  }
   .hero-acc-pts {
-    width: 62px;
+    width: 74px;
     min-height: 46px;
   }
   .hero-pts-num {

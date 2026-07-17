@@ -204,7 +204,7 @@ function renderAccountRows(root) {
                         <span class="hero-acc-today">
                             ${U.statusPill(badgeStatus)}
                             <span>${U.escapeHtml(todayText)}</span>
-                            ${a.streakCounter != null ? `<span> \u00b7 🔥\u202f${U.fmtNumber(a.streakCounter)} streak</span>` : ""}
+                            ${a.streakCounter != null ? `<span> \u00b7 🔥\u202f${U.fmtNumber(a.streakCounter)}</span>` : ""}
                         </span>
                     </div>
                     <div class="hero-acc-sub">${sub}</div>
