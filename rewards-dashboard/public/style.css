@@ -1058,6 +1058,40 @@ select.input {
 /* ==========================================================================
    10. PROGRESS + PER-ACCOUNT RUN ROWS
    ========================================================================== */
+
+.run-progress-box {
+  margin: 0 0 0 0; 
+  width: 100%;
+  padding: 1.1rem 1.25rem;
+  background: var(--surface); 
+  border: 1px solid var(--border);
+  border-radius: var(--radius); 
+  box-shadow: var(--shadow); 
+}
+
+.run-progress-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 0.85rem;
+}
+
+.run-progress-title {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.run-progress-meta {
+  font-size: 0.82rem;
+  color: var(--text-muted);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
 .progress {
   height: 8px;
   border-radius: 999px;
@@ -1066,6 +1100,7 @@ select.input {
   overflow: hidden;
   margin-bottom: 0.9rem;
 }
+
 .progress-bar {
   height: 100%;
   width: 0;
@@ -1073,6 +1108,7 @@ select.input {
   transition: width 0.35s ease;
 }
 
+/* Per-Account Rows */
 .runacc-list {
   list-style: none;
   margin: 0;
@@ -1129,13 +1165,20 @@ select.input {
   padding: 0.15rem 0.45rem;
   font-size: 0.72rem;
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .point-source strong {
   color: var(--text);
 }
 .point-source--target {
-  border-color: var(--accent);
+  border-color: transparent;
+  background: var(--amber-bg);
+  color: var(--amber);
+}
+.point-source--target strong {
+  color: var(--amber);
 }
 
 /* ==========================================================================
@@ -1249,6 +1292,8 @@ select.input {
   position: relative;
   width: 100%;
   min-height: 200px;
+  max-height: 340px;
+  overflow: hidden;
 }
 
 .chart {
@@ -1674,7 +1719,7 @@ tbody tr:hover {
 
 .hero-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) clamp(272px, 34%, 360px);
+  grid-template-columns: 1fr 1fr;
   border-bottom: 1px solid var(--border);
 }
 .hero-row:last-child {
@@ -1799,6 +1844,7 @@ tbody tr:hover {
   font-size: 0.78rem;
   color: var(--text-muted);
   white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .hero-acc-check {
@@ -1836,6 +1882,8 @@ tbody tr:hover {
   color: var(--text-muted);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .hero-sub-running {
   color: var(--amber);
@@ -1857,6 +1905,7 @@ tbody tr:hover {
   display: flex;
   flex-direction: column;
   gap: 0.3rem;
+  min-width: max-content;
 }
 
 /* Details drawer spans the full row width, under both cells. */

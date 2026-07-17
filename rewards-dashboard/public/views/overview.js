@@ -1,52 +1,18 @@
 import * as U from "../util.js";
 import { cached } from "../api.js";
+import { buildAccumBarHtml, lineChart } from "../charts.js";
 
 let data = null;
+let accountsPayload = null;
+let rootEl = null;
+let mounted = false;
+let context = null;
+
+let selected = null;
+let expanded = new Set();
+const launching = new Set();
 
 const NUMERIC = /^[+\-\u2013]?[\d,.]*$/;
-
-function statCard(
-  id,
-  value,
-  unit,
-  label,
-  iconClass = "stat-icon-check",
-  icon = "\u2713",
-) {
-  const small = NUMERIC.test(String(value).trim()) ? "" : " stat-value-sm";
-  return `
-        <div class="stat-card">
-            <div class="stat-block-chip${small ? " chip-sm-wrap" : ""}">
-                <span class="stat-num-val${small}" id="${id}">${value}</span>
-                <span class="stat-block-unit">${U.escapeHtml(unit)}</span>
-            </div>
-            <div class="stat-title-row">
-                <span class="${iconClass}" aria-hidden="true">${icon}</span>
-                <span class="stat-label">${U.escapeHtml(label)}</span>
-            </div>
-        </div>`;
-}
-
-function activityLabel(item) {
-  switch (item.kind) {
-    case "account-start":
-      return `${item.email || item.userName} \u2013 run started`;
-    case "account-end":
-      return `${item.email} \u2013 completed`;
-    case "account-error":
-      return `${item.email || "account"} \u2013 ${item.error || item.message}`;
-    case "run-start":
-      return `Run started \u2013 ${item.message.split("|")[1]?.trim() || ""}`;
-    case "run-end":
-      return `Run finished \u2013 ${item.message}`;
-    default:
-      return item.message || item.raw;
-  }
-}
-
-const levelTag = (level) =>
-  ({ error: "tag-error", warn: "tag-warn", info: "tag-info" })[level] ||
-  "tag-info";
 
 const SOURCE_LABELS = {
   search: "Search",
@@ -62,24 +28,42 @@ const SOURCE_LABELS = {
   searchOnBing: "Search activity",
 };
 
+function statCard(id, value, unit, label, iconClass = "stat-icon-check", icon = "\u2713") {
+  const small = NUMERIC.test(String(value).trim()) ? "" : " stat-value-sm";
+  return `
+        <div class="stat-card">
+            <div class="stat-block-chip${small ? " chip-sm-wrap" : ""}">
+                <span class="stat-num-val${small}" id="${id}">${value}</span>
+                <span class="stat-block-unit">${U.escapeHtml(unit)}</span>
+            </div>
+            <div class="stat-title-row">
+                <span class="${iconClass}" aria-hidden="true">${icon}</span>
+                <span class="stat-label">${U.escapeHtml(label)}</span>
+            </div>
+        </div>`;
+}
+
+function earnableBadge(account) {
+  const earnable = account.earnable || account.live?.earnable;
+  if (!earnable) return "";
+  const total = Object.values(earnable).reduce(
+    (sum, points) => sum + (Number(points) || 0),
+    0,
+  );
+  const cls = total > 0 ? "point-source point-source--target" : "point-source";
+  return `<span class="${cls}"><strong>Earnable</strong> ${U.escapeHtml(U.fmtNumber(total))}</span>`;
+}
+
 function sourceBreakdown(account) {
   const sources = Object.entries(account.live?.bySource || {}).filter(
     ([, points]) => Number(points) > 0,
   );
-  const earnable = account.earnable || null;
+  
   const chips = sources.map(
     ([source, points]) =>
       `<span class="point-source"><strong>${U.escapeHtml(SOURCE_LABELS[source] || source)}</strong> ${U.escapeHtml(U.fmtSigned(points))}</span>`,
   );
-  if (earnable) {
-    const total = Object.values(earnable).reduce(
-      (sum, points) => sum + (Number(points) || 0),
-      0,
-    );
-    chips.push(
-      `<span class="point-source point-source--target"><strong>Earnable today</strong> ${U.escapeHtml(U.fmtNumber(total))}</span>`,
-    );
-  }
+  
   return chips.length
     ? `<span class="runacc-sources">${chips.join("")}</span>`
     : "";
@@ -92,7 +76,6 @@ function activeSchedule(status) {
   const remoteOn = Boolean(remote?.enabled);
 
   if (localOn && remoteOn) {
-    // Both firing is worth flagging rather than silently picking one to show.
     return {
       description: `${local.description} + ${remote.description}`,
       enabled: true,
@@ -121,6 +104,121 @@ function activeSchedule(status) {
   };
 }
 
+function checkVariant(status) {
+  return (
+    { success: "ok", error: "error", running: "running", idle: "idle" }[status] ?? "idle"
+  );
+}
+
+function protectionPresentation(account) {
+  if (account.streakProtectionEnabled == null) return null;
+
+  const remaining = account.streakProtectionRemainingDays;
+  const days =
+    remaining == null
+      ? "days unavailable"
+      : `${remaining} protection day${remaining === 1 ? "" : "s"} left`;
+  const state = account.streakProtectionEnabled ? "On" : "Off";
+  const streak =
+    account.streakCounter == null
+      ? "streak unavailable"
+      : `${U.fmtNumber(account.streakCounter)} day${account.streakCounter === 1 ? "" : "s"} current streak`;
+
+  return {
+    state,
+    days,
+    streak,
+    pillClass:
+      account.streakProtectionEnabled && remaining !== 0
+        ? "pill-success"
+        : remaining === 0
+          ? "pill-warn"
+          : "pill-idle",
+  };
+}
+
+function detailsGrid(a) {
+  const items = [];
+  const protection = protectionPresentation(a);
+  if (a.index != null) items.push(["Slot", `ACCOUNT_${a.index}`]);
+  items.push([
+    "Configured in .env",
+    a.configured ? "Yes" : "No \u2014 seen in logs only",
+  ]);
+  if (a.geoLocale) items.push(["Geo locale", a.geoLocale]);
+  if (a.langCode) items.push(["Language", a.langCode]);
+  if (a.hasTotp != null)
+    items.push(["TOTP secret", a.hasTotp ? "Set" : "Not set"]);
+  if (a.hasRecoveryEmail != null)
+    items.push(["Recovery email", a.hasRecoveryEmail ? "Set" : "Not set"]);
+  items.push([
+    "Proxy",
+    a.proxy
+      ? `${a.proxy.url}${a.proxy.port ? `:${a.proxy.port}` : ""}${a.proxy.hasCredentials ? " (authenticated)" : ""}`
+      : "None",
+  ]);
+  items.push([
+    "Success streak",
+    `${a.successStreak} run${a.successStreak === 1 ? "" : "s"}`,
+  ]);
+  if (protection) {
+    items.push(["Current streak", protection.streak]);
+    items.push([
+      "Streak protection",
+      protection.state === "On" ? "Enabled" : "Disabled",
+    ]);
+    items.push(["Protection days remaining", protection.days]);
+    if (a.streakProtectionUpdatedAt) {
+      items.push([
+        "Protection status checked",
+        U.fmtRelative(a.streakProtectionUpdatedAt),
+      ]);
+    }
+  }
+  items.push(["Runs recorded by the API", U.fmtNumber(a.apiRuns)]);
+  items.push([
+    "Points collected (API history)",
+    U.fmtSigned(a.apiTotalCollected),
+  ]);
+  items.push(["Last duration", U.fmtDuration(a.lastDurationSec)]);
+  items.push(["History points loaded", U.fmtNumber(a.historyCount)]);
+
+  return `<dl class="kv">${items
+    .map(
+      ([k, v]) =>
+        `<div><dt>${U.escapeHtml(k)}</dt><dd>${U.escapeHtml(String(v))}</dd></div>`,
+    )
+    .join("")}</dl>`;
+}
+
+function controlState() {
+  const status = context?.status;
+  const usable = Boolean(status?.reachable && status?.authOk !== false);
+  const running = Boolean(status?.botRunning);
+  return { usable, running };
+}
+
+async function runAccount(account) {
+  if (!context || !account.configured || !Number.isInteger(account.index)) return;
+
+  launching.add(account.index);
+  renderAccountRows(rootEl);
+  try {
+    await context.api.control("start", { accountIndex: account.index });
+    context.toast(
+      `Started ACCOUNT_${account.index} only (${account.email}).`,
+      "success",
+    );
+    context.invalidate();
+    await context.refresh();
+  } catch (error) {
+    context.toast(error.message, error.status === 409 ? "warn" : "error");
+  } finally {
+    launching.delete(account.index);
+    renderAccountRows(rootEl);
+  }
+}
+
 function renderStats(root, status) {
   const accounts = data?.accounts || [];
   const runs = data?.runs || [];
@@ -132,31 +230,12 @@ function renderStats(root, status) {
   const sched = activeSchedule(status);
 
   U.$("#statGrid", root).innerHTML = [
-    statCard(
-      "statAccounts",
-      U.fmtNumber(accounts.length),
-      "profiles",
-      "Accounts tracked",
-    ),
-    statCard(
-      "statCombined",
-      U.fmtNumber(combined),
-      "points",
-      "Combined balance",
-    ),
-    statCard(
-      "statLastGained",
-      lastRun ? U.fmtSigned(lastRun.totalGained) : "\u2013",
-      "points",
-      "Points earned last run",
-    ),
+    statCard("statAccounts", U.fmtNumber(accounts.length), "profiles", "Accounts tracked"),
+    statCard("statCombined", U.fmtNumber(combined), "points", "Combined balance"),
+    statCard("statLastGained", lastRun ? U.fmtSigned(lastRun.totalGained) : "\u2013", "points", "Points earned last run"),
     statCard(
       "statLastRun",
-      anyRunning
-        ? "Running now"
-        : lastRun
-          ? U.fmtRelative(lastRun.endTs || lastRun.startTs)
-          : "\u2013",
+      anyRunning ? "Running now" : lastRun ? U.fmtRelative(lastRun.endTs || lastRun.startTs) : "\u2013",
       anyRunning ? "" : "timestamp",
       "Last run",
       anyRunning ? "stat-icon-running" : "stat-icon-check",
@@ -175,162 +254,309 @@ function renderStats(root, status) {
       U.escapeHtml(sched.description || "\u2013"),
       sched.timezone || "UTC",
       sched.both ? "Schedule (2 active)" : "Schedule",
-      sched.both
-        ? "stat-icon-alert icon-alert-active"
-        : sched.enabled
-          ? "stat-icon-check"
-          : "stat-icon-idle",
+      sched.both ? "stat-icon-alert icon-alert-active" : sched.enabled ? "stat-icon-check" : "stat-icon-idle",
       sched.both ? "!" : sched.enabled ? "\u2713" : "\u2013",
     ),
   ].join("");
 }
 
-function renderCurrentRun(root, status) {
-  const section = U.$("#currentRun", root);
-  const bot = status?.bot;
-  const run = bot?.run;
-  const active = bot && bot.state !== "idle" && bot.state !== "unknown";
+function renderAccountRows(root) {
+  const container = U.$("#overviewHeroRows", root);
+  const accounts = accountsPayload?.accounts || [];
+  const histories = accountsPayload?.histories || {};
+  const { usable, running } = controlState();
+  // earnable / per-source breakdowns only ever exist on the live run status
+  // (bot.run.accounts), never on the static /api/accounts list — join them
+  // in by email so a currently-running account's row can show them.
+  const liveByEmail = new Map(
+    (context?.status?.bot?.run?.accounts || []).map((la) => [la.email, la]),
+  );
 
-  if (!active && !(run && run.accountsSeen)) {
-    section.hidden = true;
+  const errEl = U.$("#ovwAccountsError", root);
+  if (errEl) {
+    errEl.hidden = !accountsPayload?.apiError;
+    if (accountsPayload?.apiError) errEl.textContent = accountsPayload.apiError;
+  }
+
+  if (!accounts.length) {
+    container.innerHTML = '<p class="empty-note" style="padding:1.25rem">No accounts configured or observed yet.</p>';
     return;
   }
-  section.hidden = false;
 
-  const total = run?.accountsTotal || 0;
-  const seen = run?.accountsSeen || 0;
-  const done = (run?.accounts || []).filter((a) => a.success != null).length;
-  const pct = total ? Math.min(100, Math.round((done / total) * 100)) : 0;
+  const bucketed = accounts
+    .map((a) => ({ key: a.key, days: U.bucketByDay(histories[a.key] || []) }))
+    .filter((x) => x.days.length);
+  const globalMax = bucketed.length
+    ? Math.max(1, ...bucketed.flatMap((b) => b.days.map((d) => d.gained)))
+    : 1;
+  const daysByKey = Object.fromEntries(bucketed.map((b) => [b.key, b.days]));
+  const todayKey = U.tzDayKey(new Date());
+  const isMobile = window.matchMedia("(max-width: 768px)").matches;
 
-  U.$("#currentRunTitle", root).textContent = active
-    ? "Run in progress"
-    : "Last run";
-  U.$("#currentRunMeta", root).textContent = [
+  container.innerHTML = accounts
+    .map((a) => {
+      const live = liveByEmail.get(a.email) || null;
+      const days = daysByKey[a.key] || null;
+      const barCell = days
+        ? `<div class="accum-track"><div class="accum-bar">${buildAccumBarHtml(days, globalMax, isMobile ? 7 : null)}</div></div>`
+        : '<p class="empty-note" style="font-size:0.78rem;margin:0">No history yet</p>';
+
+      const todayGained = days?.find((d) => d.dayKey === todayKey)?.gained ?? null;
+      const variant = checkVariant(a.status);
+      const protection = protectionPresentation(a);
+      const badgeStatus = { ok: "success", error: "error", running: "running", idle: "idle" }[variant];
+
+      const todayText =
+        todayGained != null
+          ? `+${todayGained.toLocaleString()}\u202fpts today`
+          : a.status === "running"
+            ? "Running\u2026"
+            : "No run today";
+
+      const dur = a.lastDurationSec != null ? U.fmtDuration(a.lastDurationSec) : null;
+      const sub =
+        a.status === "running"
+          ? `<span class="hero-sub-running">Running\u2026 ${U.escapeHtml(U.fmtRelative(a.lastStartAt))}</span>`
+          : dur
+            ? `Last: ${U.escapeHtml(U.fmtRelative(a.lastEndAt || a.lastStartAt))} \u00b7 <span title="Last run duration">⏱ ${U.escapeHtml(dur)}</span>`
+            : `Last: ${U.escapeHtml(U.fmtRelative(a.lastEndAt || a.lastStartAt))}`;
+
+      const isOpen = expanded.has(a.key);
+
+      return `<div class="hero-row">
+            <div class="hero-bar-cell">${barCell}</div>
+            <div class="hero-acc-card">
+                <div class="hero-acc-pts">
+                    <span class="hero-pts-num">${a.lastPoints != null ? U.fmtNumber(a.lastPoints) : "\u2013"}</span>
+                    <span class="hero-pts-unit">Points</span>
+                </div>
+                <div class="hero-acc-info">
+                    <div class="hero-acc-name">${U.escapeHtml(a.email)}${a.configured ? "" : ' <span class="tag-mini">unconfigured</span>'}</div>
+                    <div class="hero-acc-meta">
+                        <span class="hero-acc-today">
+                            ${U.statusPill(badgeStatus)}
+                            <span>${U.escapeHtml(todayText)}</span>
+                        </span>
+                        ${earnableBadge(live || {})}
+                    </div>
+                    <div class="hero-acc-sub">${sub}</div>
+                    ${a.lastError ? `<div class="hero-acc-error">${U.escapeHtml(a.lastError)}</div>` : ""}
+                    ${sourceBreakdown(live || {})}
+                </div>
+                <div class="hero-acc-actions">
+                    ${a.configured && Number.isInteger(a.index)
+                      ? `<button type="button" class="link-btn" data-run-account="${a.index}" ${!usable || running || launching.has(a.index) ? "disabled" : ""} title="Run only ACCOUNT_${a.index}">${launching.has(a.index) ? "Starting…" : "Run only"}</button>`
+                      : ""
+                    }
+                    <button type="button" class="link-btn" data-trend="${U.escapeAttr(a.key)}" aria-pressed="${selected === a.key}">Trend</button>
+                    <button type="button" class="link-btn" data-details="${U.escapeAttr(a.key)}" aria-pressed="${isOpen}">Details</button>
+                </div>
+                ${protection
+                  ? `<div class="hero-streak-row"><span class="pill ${protection.pillClass} hero-streak-pill" title="${U.escapeAttr(protection.streak)}; streak protection is ${protection.state.toLowerCase()}; ${U.escapeAttr(protection.days)}">Streak ${a.streakCounter == null ? "–" : U.escapeHtml(U.fmtNumber(a.streakCounter))} · Protection ${protection.state} · ${U.escapeHtml(protection.days)}</span></div>`
+                  : ""
+                }
+            </div>
+            ${isOpen ? `<div class="hero-details">${detailsGrid(a)}</div>` : ""}
+        </div>`;
+    })
+    .join("");
+
+  container.querySelectorAll(".accum-track").forEach((track) => {
+    track.scrollLeft = track.scrollWidth;
+  });
+
+  container.querySelectorAll("button[data-run-account]").forEach((btn) =>
+    btn.addEventListener("click", () => {
+      const index = Number(btn.dataset.runAccount);
+      const account = accounts.find((a) => a.index === index);
+      if (account) runAccount(account);
+    }),
+  );
+
+  container.querySelectorAll("button[data-details]").forEach((btn) =>
+    btn.addEventListener("click", () => {
+      const key = btn.dataset.details;
+      if (expanded.has(key)) expanded.delete(key);
+      else expanded.add(key);
+      renderAccountRows(root);
+    }),
+  );
+
+  container.querySelectorAll("button[data-trend]").forEach((btn) =>
+    btn.addEventListener("click", () => {
+      selected = selected === btn.dataset.trend ? null : btn.dataset.trend;
+      renderAccountRows(root);
+      if (selected) {
+        U.$("#ovwTrendSection", root).scrollIntoView({
+          behavior: "smooth",
+          block: "nearest",
+        });
+      }
+    }),
+  );
+
+  renderTrend();
+}
+
+function renderTrend() {
+  const section = U.$("#ovwTrendSection", rootEl);
+  section.hidden = !selected;
+  if (!selected) return;
+
+  const history = (accountsPayload?.histories || {})[selected] || [];
+  U.$("#ovwTrendName", rootEl).textContent = selected;
+
+  lineChart(
+    U.$("#ovwTrendChart", rootEl),
+    history.map((h) => ({
+      key: h.ts.slice(0, 10),
+      value: h.points,
+      label: U.fmtDateTime(h.ts),
+    })),
+    { emptyMessage: "No point history recorded for this account yet." },
+  );
+}
+
+function renderRunHeader(root, status) {
+  const bot = status?.bot;
+  const run = bot?.run;
+
+  const active =
+    bot &&
+    bot.state !== "idle" &&
+    bot.state !== "unknown";
+
+  const progressBox = U.$("#runProgressBox", root);
+  const titleEl = U.$("#run-progress-heading", root);
+  const metaEl = U.$("#currentRunMeta", root);
+  const bar = U.$("#currentRunBar", root);
+
+  if (!bar) return;
+
+  progressBox.hidden = false;
+
+  const progressWrap = bar.parentElement;
+
+  const total = Number(run?.accountsTotal) || 0;
+
+  // Prefer the live counter while the run is executing.
+  let done = Number(run?.accountsSeen);
+
+  // Fallback for older API versions.
+  if (!Number.isFinite(done)) {
+    done = (run?.accounts || []).filter(a => a.success != null).length;
+  }
+
+  done = Math.min(done, total);
+
+  const pct = total > 0
+    ? Math.round((done / total) * 100)
+    : 0;
+
+  titleEl.textContent = active ? "Run in progress" : "Last run";
+
+  metaEl.textContent = [
     run?.version ? `v${run.version}` : null,
-    total ? `${done}/${total} accounts done` : `${seen} accounts seen`,
+    total
+      ? `${done}/${total} accounts done`
+      : `${done} accounts seen`,
     run?.clusters != null
       ? `${run.clusters} cluster${run.clusters === 1 ? "" : "s"}`
       : null,
-    run?.collected != null ? `${U.fmtSigned(run.collected)} points` : null,
+    run?.collected != null
+      ? `${U.fmtSigned(run.collected)} points`
+      : null,
   ]
     .filter(Boolean)
     .join(" \u00b7 ");
 
-  U.$("#currentRunBar", root).style.width = `${pct}%`;
-  U.$("#currentRunBar", root).parentElement.setAttribute(
-    "aria-valuenow",
-    String(pct),
-  );
-
-  const rows = (run?.accounts || []).map((a) => {
-    const status =
-      a.success === true
-        ? "success"
-        : a.success === false
-          ? "error"
-          : a.collectedPoints != null
-            ? "success"
-            : "running";
-
-    const live = a.live || {};
-    const liveDetail = [
-      live.gained ? `${U.fmtSigned(live.gained)} pts so far` : null,
-      live.balance != null ? `${U.fmtNumber(live.balance)} total` : null,
-    ]
-      .filter(Boolean)
-      .join(" \u00b7 ");
-
-    const detail =
-      a.success === false
-        ? a.error || "Failed"
-        : a.collectedPoints != null
-          ? `${U.fmtSigned(a.collectedPoints)} pts \u00b7 ${U.fmtNumber(a.finalPoints)} total${a.durationSeconds ? ` \u00b7 ${U.fmtDuration(a.durationSeconds)}` : ""}`
-          : liveDetail || "Working\u2026";
-    return `
-            <li class="runacc">
-                ${U.statusPill(status)}
-                <span class="runacc-email">${U.escapeHtml(a.email)}</span>
-                <span class="runacc-detail">${U.escapeHtml(detail)}</span>
-                ${sourceBreakdown(a)}
-            </li>`;
-  });
-
-  U.$("#currentRunAccounts", root).innerHTML = rows.length
-    ? rows.join("")
-    : '<li class="empty-note">Waiting for the first account\u2026</li>';
-}
-
-function renderActivity(root) {
-  const activity = data?.activity || [];
-  const feed = U.$("#activityFeed", root);
-  if (!activity.length) {
-    feed.innerHTML = '<li class="empty-note">No activity observed yet.</li>';
-    return;
+  bar.style.width = `${pct}%`;
+  progressWrap.setAttribute("aria-valuenow", String(pct));
+  
+  if (!active) {
+    progressBox.classList.add("idle");
+  } else {
+    progressBox.classList.remove("idle");
   }
-  feed.innerHTML = activity
-    .map(
-      (item) => `
-        <li class="activity-item">
-            <span class="activity-time">${U.fmtDateTime(item.ts)}</span>
-            <span class="activity-tag ${levelTag(item.level)}">${U.escapeHtml(item.title || item.level || "")}</span>
-            <span class="activity-msg">${U.escapeHtml(activityLabel(item))}</span>
-        </li>`,
-    )
-    .join("");
-}
 
-let rootEl = null;
+  const accounts = accountsPayload?.accounts || [];
+
+  U.$("#accountsSubtitle", root).textContent = accounts.length
+    ? `${accounts.length} account${accounts.length === 1 ? "" : "s"} tracked`
+    : "Daily tracker, configuration & per-account results";
+}
 
 export default {
   id: "overview",
   label: "Overview",
   interval: 10000,
 
-  mount(root) {
+  mount(root, ctx) {
     rootEl = root;
+    context = ctx;
     root.innerHTML = `
+            <p class="notice notice--warn" id="ovwAccountsError" hidden></p>
+
             <section aria-labelledby="stats-heading" class="stats">
                 <h2 id="stats-heading" class="visually-hidden">Summary</h2>
                 <div class="stat-grid" id="statGrid"></div>
             </section>
 
-            <section class="panel" id="currentRun" hidden aria-labelledby="current-run-heading">
-                <div class="panel-head">
-                    <h2 id="current-run-heading"><span id="currentRunTitle">Run in progress</span></h2>
-                    <span class="panel-sub" id="currentRunMeta"></span>
+            <section class="panel run-progress-box" id="runProgressBox" aria-labelledby="run-progress-heading">
+                <div class="run-progress-header">
+                    <h2 class="run-progress-title" id="run-progress-heading">Run in progress</h2>
+                    <span id="currentRunMeta" class="run-progress-meta"></span>
                 </div>
-                <div class="progress" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+                <div class="progress" id="currentRunProgressWrap" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
                     <div class="progress-bar" id="currentRunBar"></div>
                 </div>
-                <ul class="runacc-list" id="currentRunAccounts"></ul>
             </section>
 
-            <section class="panel" aria-labelledby="activity-heading">
-                <div class="panel-head">
-                    <h2 id="activity-heading">Recent activity</h2>
-                    <span class="panel-sub">Milestones, warnings and errors parsed from the log stream</span>
+            <section class="panel hero-panel" id="currentRun" aria-labelledby="current-run-heading">
+                <div class="hero-panel-header">
+                    <h2 id="current-run-heading">Accounts</h2>
+                    <span class="hero-panel-subtitle" id="accountsSubtitle">Loading tracker...</span>
                 </div>
-                <ul id="activityFeed" class="activity-feed" aria-live="polite">
-                    <li class="empty-note">Loading activity&hellip;</li>
-                </ul>
-            </section>`;
-  },
+                <div class="hero-layout" id="overviewHeroRows">
+                    <p class="empty-note" style="padding:1.25rem">Loading&hellip;</p>
+                </div>
+            </section>
 
+            <section class="panel" id="ovwTrendSection" hidden aria-labelledby="ovw-trend-heading">
+                <div class="panel-head">
+                    <h2 id="ovw-trend-heading">Point total &mdash; <span id="ovwTrendName"></span></h2>
+                    <span class="panel-sub">Every recorded balance, oldest to newest</span>
+                </div>
+                <div id="ovwTrendChart" class="chart-wrap"></div>
+            </section>
+            
+            <p class="hint">Accounts are configured in the bot&rsquo;s <code>.env</code> (<code>ACCOUNT_N_*</code>).
+            The control API exposes full local email addresses but never sends passwords, recovery addresses, TOTP secrets, or proxy credentials.
+            Use <strong>Run only</strong> to launch just that account slot; the main Start button and scheduler still run all accounts.</p>`;
+    mounted = true;
+  },
+  
   async refresh(ctx) {
-    data = await cached("summary", ctx.api.summary, 3000);
+    context = ctx;
+    [data, accountsPayload] = await Promise.all([
+      cached("summary", ctx.api.summary, 3000),
+      cached("accounts", ctx.api.accounts, 5000),
+    ]);
     this.redraw(ctx);
   },
 
   redraw(ctx) {
-    if (!rootEl || !data) return;
-    renderStats(rootEl, ctx.status);
-    renderCurrentRun(rootEl, ctx.status);
-    renderActivity(rootEl);
+    context = ctx || context;
+    if (!mounted || !data) return;
+    renderStats(rootEl, context.status);
+    renderRunHeader(rootEl, context.status);
+    renderAccountRows(rootEl);
   },
 
-  onState(status) {
-    if (!rootEl || !data) return;
-    renderCurrentRun(rootEl, status);
+  onState(status, ctx) {
+    context = ctx || context;
+    if (!mounted || !data) return;
+    renderRunHeader(rootEl, status);
     renderStats(rootEl, status);
   },
 };

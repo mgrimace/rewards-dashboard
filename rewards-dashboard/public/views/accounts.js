@@ -167,18 +167,9 @@ function render() {
         days?.find((d) => d.dayKey === todayKey)?.gained ?? null;
       const variant = checkVariant(a.status);
       const protection = protectionPresentation(a);
-      const check = {
-        ok: "\u2713",
-        error: "!",
-        running: "\u25CF",
-        idle: "\u2013",
-      }[variant];
-      const checkTitle = {
-        ok: "Last run: successful",
-        error: "Last run: error",
-        running: "Currently running",
-        idle: "Idle \u2013 not yet run",
-      }[variant];
+      const badgeStatus = { ok: "success", error: "error", running: "running", idle: "idle" }[
+        variant
+      ];
 
       const todayText =
         todayGained != null
@@ -209,7 +200,7 @@ function render() {
                     <div class="hero-acc-name">${U.escapeHtml(label)}${a.configured ? "" : ' <span class="tag-mini">unconfigured</span>'}</div>
                     <div class="hero-acc-meta">
                         <span class="hero-acc-today">
-                            <span class="hero-acc-check hero-acc-check--${variant}" title="${U.escapeAttr(checkTitle)}" aria-hidden="true">${check}</span>
+                            ${U.statusPill(badgeStatus)}
                             <span>${U.escapeHtml(todayText)}</span>
                         </span>
                     </div>
