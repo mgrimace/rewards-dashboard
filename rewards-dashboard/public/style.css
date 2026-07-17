@@ -1691,6 +1691,72 @@ tbody tr:hover {
 /* ==========================================================================
    18. HERO ACCOUNT PANEL
    ========================================================================== */
+
+/* Accounts Tab Layout */
+#accountsContainer {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.account-detail-panel .panel-body {
+  background: var(--surface-alt);
+  padding: 1rem;
+  border-radius: 8px;
+}
+/* Isolated styles for accounts.js row layout */
+.account-today-row {
+  display: flex;
+  gap: 0.75rem;
+  align-items: flex-start;
+  margin-top: 1.25rem;
+  padding: 0 1rem 1rem 1rem;
+}
+
+.account-today-label {
+  font-weight: 600;
+  flex-shrink: 0;
+  margin-top: 0.2rem;
+}
+
+.account-today-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  flex: 1;
+  align-items: center;
+}
+
+/* Container aligned to the left edge of the action group */
+.account-today-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start; /* Left-aligns button content and text underneath */
+  gap: 0.35rem;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.account-today-actions .btn[data-run-account] {
+  padding: 0.5rem 1.25rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 2.2rem;
+  font-weight: 600;
+  line-height: 1.2;
+  width: 100%;
+}
+
+/* Subtle, un-themed plain text status indicator */
+.account-status-text {
+  font-size: 0.78rem;
+  font-weight: 500;
+  padding-left: 0.1rem;
+  opacity: 0.75;
+  line-height: 1.2;
+}
+
 .hero-panel {
   padding: 0;
   overflow: hidden;
@@ -2155,6 +2221,21 @@ tbody tr:hover {
   }
   .hero-details {
     padding: 0.85rem 1rem;
+  }
+
+  .account-today-row {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.6rem;
+    padding: 0 0.25rem 0.5rem;
+  }
+  .account-today-actions {
+    margin-left: 0;
+    width: 100%;
+    align-items: flex-start;
+  }
+  .account-today-actions .btn[data-run-account] {
+    width: 100%;
   }
 
   .log-box {
