@@ -1,8 +1,6 @@
 // Applies a theme (imported from ./themes/index.js) to the page by setting
 // CSS custom properties on the root element. This dashboard only uses a
-// subset of the full palette shape - todo-app-specific tokens like
-// energyLowBg/energyMediumBg/energyHighBg are present in dropped-in theme
-// files but simply ignored here, same as the budget app's manager does.
+// subset of the full palette shape because I'm reusing themes from my other app
 const TOKEN_TO_CSS_VAR = {
   canvas: "--canvas",
   surface: "--surface",
@@ -19,6 +17,7 @@ const TOKEN_TO_CSS_VAR = {
   focus: "--focus",
   positive: "--positive",
   negative: "--negative",
+  energyHighAccent: "--energy-high-accent",
 };
 
 export function applyTheme(theme, mode) {
