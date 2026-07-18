@@ -2,9 +2,6 @@
 
 A companion dashboard for [microsoft-rewards-script](https://github.com/thenetsky/microsoft-rewards-script), driven entirely over HTTP by the bot's [Control API](https://github.com/thenetsky/microsoft-rewards-script/tree/v4/scripts/api) (`API_MODE=true`). It shows account status, point totals, and trends at `http://<host-ip>:8890`, and can start/stop/schedule runs and edit the bot's config.
 
-> [!WARNING]
-> In active development to support the microsoft-rewards-script new API features. 
-
 ## Screenshots
 
 | Desktop | Mobile |
