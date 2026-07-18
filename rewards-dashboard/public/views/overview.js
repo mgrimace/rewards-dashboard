@@ -183,13 +183,23 @@ function renderAccountRows(root) {
             ? "Running\u2026"
             : "No run today";
 
+      // Calculate gain from history delta
+      const accountHistory = histories[a.key] || [];
+      let lastGain = null;
+      if (accountHistory.length >= 2) {
+        const latest = accountHistory[accountHistory.length - 1];
+        const previous = accountHistory[accountHistory.length - 2];
+        lastGain = latest.points - previous.points;
+      }
+
       const dur = a.lastDurationSec != null ? U.fmtDuration(a.lastDurationSec) : null;
+
       const sub =
         a.status === "running"
           ? `<span class="hero-sub-running">Running\u2026 ${U.escapeHtml(U.fmtRelative(a.lastStartAt))}</span>`
-          : dur
-            ? `Last: ${U.escapeHtml(U.fmtRelative(a.lastEndAt || a.lastStartAt))} \u00b7 <span title="Last run duration">⏱ ${U.escapeHtml(dur)}</span>`
-            : `Last: ${U.escapeHtml(U.fmtRelative(a.lastEndAt || a.lastStartAt))}`;
+          : `Last Run: ${U.escapeHtml(U.fmtRelative(a.lastEndAt || a.lastStartAt))}${
+              dur ? ` \u00b7 <span title="Last run duration">⏱ ${U.escapeHtml(dur)}</span>` : ""
+            }${lastGain != null ? ` \u00b7 <span class="gain-val">${U.fmtSigned(lastGain)} points</span>` : ""}`;
 
       return `<div class="hero-row">
             <div class="hero-bar-cell">${barCell}</div>
