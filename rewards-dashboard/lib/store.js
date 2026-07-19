@@ -335,6 +335,21 @@ class Store {
         break;
       }
       case "run-start": {
+        // If a previous run never got a matching run-end (crash before the
+        // log line flushed, dashboard restart mid-run, etc.) it would
+        // otherwise sit as 'running' forever with no data. A new run-start
+        // is proof that run is over one way or another, so close it out
+        // rather than leaving a permanent ghost.
+        const stale = this.stmts.findRunningRun.get();
+        if (stale) {
+          this.stmts.closeRunOnExit.run(
+            "crashed",
+            event.ts,
+            null,
+            null,
+            stale.id,
+          );
+        }
         this.stmts.insertRunStart.run(
           event.ts,
           event.ts,
@@ -415,7 +430,17 @@ class Store {
     if (!running) return false;
     const code = exit?.code ?? null;
     const signal = exit?.signal ?? null;
-    const status = signal ? "stopped" : code === 0 ? "done" : "crashed";
+
+    // A clean exit (code 0, no signal) almost always means the app already
+    // logged its own RUN-END line, which the "run-end" event handler above
+    // closes with the real accounts/points data. Racing ahead here would
+    // stamp this row 'done' with everything NULL, then force run-end into
+    // creating a second, orphaned row once it can't find this one anymore -
+    // exactly the empty "Done -/N" duplicates this was producing. Only step
+    // in for crashes/kills, where no RUN-END line is ever coming.
+    if (!signal && code === 0) return false;
+
+    const status = signal ? "stopped" : "crashed";
     this.stmts.closeRunOnExit.run(
       status,
       exit?.at || new Date().toISOString(),

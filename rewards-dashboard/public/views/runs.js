@@ -42,8 +42,22 @@ function renderChart() {
   });
 }
 
+// A single actual bot execution currently produces up to 4 rows in the
+// underlying run history (a wrapper-level lock-acquire/release pair with no
+// point data, alongside the app's own RUN-START/RUN-END pair that has the
+// real numbers) - filter down to what's actually informative: rows with
+// real data, plus anything that isn't a plain success (errors/crashes are
+// worth seeing even without full data).
+function hasData(r) {
+  return r.accountsProcessed != null || r.totalGained != null || r.newTotal != null;
+}
+function isInformative(r) {
+  if (r.status === "running" || r.status === "done") return hasData(r);
+  return true;
+}
+
 function renderRuns() {
-  const runs = runsPayload?.runs || [];
+  const runs = (runsPayload?.runs || []).filter(isInformative);
   const body = U.$("#runsBody", rootEl);
 
   if (!runs.length) {
