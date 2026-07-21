@@ -7,7 +7,6 @@ const { DatabaseSync } = require("node:sqlite");
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, "..", "data");
 const DB_FILE = path.join(DATA_DIR, "dashboard.sqlite");
 
-
 const MAX_ACTIVITY_ROWS = 5000;
 
 const SCHEMA = `
@@ -335,20 +334,10 @@ class Store {
         break;
       }
       case "run-start": {
-        // If a previous run never got a matching run-end (crash before the
-        // log line flushed, dashboard restart mid-run, etc.) it would
-        // otherwise sit as 'running' forever with no data. A new run-start
-        // is proof that run is over one way or another, so close it out
-        // rather than leaving a permanent ghost.
-        const stale = this.stmts.findRunningRun.get();
-        if (stale) {
-          this.stmts.closeRunOnExit.run(
-            "crashed",
-            event.ts,
-            null,
-            null,
-            stale.id,
-          );
+        const alreadyRunning = this.stmts.findRunningRun.get();
+        if (alreadyRunning) {
+          changed = false;
+          break;
         }
         this.stmts.insertRunStart.run(
           event.ts,
@@ -368,6 +357,11 @@ class Store {
         break;
       }
       case "wrapper-lock-released": {
+        // Backstop: if the wrapper finishes/exits and a run is still marked running, close it out
+        const running = this.stmts.findRunningRun.get();
+        if (running) {
+          this.stmts.closeRunOnExit.run("crashed", event.ts, null, null, running.id);
+        }
         if (event.pid) {
           this._pushActivity({
             ...event,
@@ -431,13 +425,6 @@ class Store {
     const code = exit?.code ?? null;
     const signal = exit?.signal ?? null;
 
-    // A clean exit (code 0, no signal) almost always means the app already
-    // logged its own RUN-END line, which the "run-end" event handler above
-    // closes with the real accounts/points data. Racing ahead here would
-    // stamp this row 'done' with everything NULL, then force run-end into
-    // creating a second, orphaned row once it can't find this one anymore -
-    // exactly the empty "Done -/N" duplicates this was producing. Only step
-    // in for crashes/kills, where no RUN-END line is ever coming.
     if (!signal && code === 0) return false;
 
     const status = signal ? "stopped" : "crashed";
@@ -451,7 +438,6 @@ class Store {
     return true;
   }
 
-  // schedule
   getSchedule() {
     const raw = this._readMeta("schedule");
     if (!raw) return null;
