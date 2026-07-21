@@ -7,6 +7,7 @@ const { DatabaseSync } = require("node:sqlite");
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, "..", "data");
 const DB_FILE = path.join(DATA_DIR, "dashboard.sqlite");
 
+
 const MAX_ACTIVITY_ROWS = 5000;
 
 const SCHEMA = `
@@ -334,6 +335,12 @@ class Store {
         break;
       }
       case "run-start": {
+        // With clustering on, the bot logs one RUN-START line per worker
+        // spawned for the SAME run, not once per run - e.g. Clusters: 3
+        // produces 3-4 near-identical RUN-START lines a second or so apart.
+        // Only the first one (nothing currently 'running') starts a new
+        // row; later ones for the same run are redundant echoes and must
+        // be ignored, not treated as evidence the previous row crashed.
         const alreadyRunning = this.stmts.findRunningRun.get();
         if (alreadyRunning) {
           changed = false;
@@ -357,10 +364,24 @@ class Store {
         break;
       }
       case "wrapper-lock-released": {
-        // Backstop: if the wrapper finishes/exits and a run is still marked running, close it out
-        const running = this.stmts.findRunningRun.get();
-        if (running) {
-          this.stmts.closeRunOnExit.run("crashed", event.ts, null, null, running.id);
+        // Fires via run_daily.sh's bash EXIT trap - the parser treats both
+        // "Lock released" and "Script finished" as this same signal, and
+        // per its own comment it's designed to still fire even if the app
+        // crashed outright and skipped its own RUN-END line entirely. If a
+        // run is still marked 'running' by the time this shows up, that's
+        // proof nothing else is coming for it - close it out here rather
+        // than leaving a permanent ghost. This only covers wrapper-invoked
+        // runs (cron/RUN_ON_START); a run started directly via the
+        // dashboard/API still relies on closeRunOnExit for that case.
+        const stillRunning = this.stmts.findRunningRun.get();
+        if (stillRunning) {
+          this.stmts.closeRunOnExit.run(
+            "crashed",
+            event.ts,
+            null,
+            null,
+            stillRunning.id,
+          );
         }
         if (event.pid) {
           this._pushActivity({
@@ -425,6 +446,13 @@ class Store {
     const code = exit?.code ?? null;
     const signal = exit?.signal ?? null;
 
+    // A clean exit (code 0, no signal) almost always means the app already
+    // logged its own RUN-END line, which the "run-end" event handler above
+    // closes with the real accounts/points data. Racing ahead here would
+    // stamp this row 'done' with everything NULL, then force run-end into
+    // creating a second, orphaned row once it can't find this one anymore -
+    // exactly the empty "Done -/N" duplicates this was producing. Only step
+    // in for crashes/kills, where no RUN-END line is ever coming.
     if (!signal && code === 0) return false;
 
     const status = signal ? "stopped" : "crashed";
@@ -438,6 +466,7 @@ class Store {
     return true;
   }
 
+  // schedule
   getSchedule() {
     const raw = this._readMeta("schedule");
     if (!raw) return null;
