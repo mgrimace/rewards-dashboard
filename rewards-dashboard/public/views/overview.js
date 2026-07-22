@@ -217,7 +217,7 @@ function renderAccountRows(root) {
             }${lastGain != null ? ` \u00b7 <span class="gain-val">${U.fmtSigned(lastGain)} points</span>` : ""}`;
 
       // hide email for screenshots by toggling mask = true      
-      const MASK_EMAILS = true;
+      const MASK_EMAILS = false;
       return `<div class="hero-row">
             <div class="hero-bar-cell">${barCell}</div>
             <div class="hero-acc-card">
