@@ -214,7 +214,7 @@ function renderAccountRows(root) {
           ? `<span class="hero-sub-running">Running\u2026 ${U.escapeHtml(U.fmtRelative(a.lastStartAt))}</span>`
           : `Last Run: ${U.escapeHtml(U.fmtRelative(a.lastEndAt || a.lastStartAt))}${
               dur ? ` \u00b7 <span title="Last run duration">⏱ ${U.escapeHtml(dur)}</span>` : ""
-            }${lastGain != null ? ` \u00b7 <span class="gain-val">${U.fmtSigned(lastGain)} points</span>` : ""}`;
+            }${lastGain != null ? ` \u00b7 <span class="gain-val">${U.fmtSigned(lastGain)} pts</span>` : ""}`;
 
       // hide email for screenshots by toggling mask = true      
       const MASK_EMAILS = false;
