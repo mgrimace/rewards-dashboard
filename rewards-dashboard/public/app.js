@@ -19,6 +19,9 @@ import schedule from "./views/schedule.js";
 import configView from "./views/config.js";
 import diagnostics from "./views/diagnostics.js";
 
+const version = window.APP_VERSION || "Development";
+document.getElementById("footerVersion").textContent = version;
+
 const VIEWS = [
   overview,
   accounts,

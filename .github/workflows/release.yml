@@ -49,6 +49,14 @@ jobs:
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "image=$IMAGE" >> "$GITHUB_OUTPUT"
 
+      # Generate frontend version file
+      - name: Generate version.js
+        shell: bash
+        run: |
+          cat > rewards-dashboard/version.js <<EOF
+          window.APP_VERSION = "${{ steps.meta.outputs.tag }}";
+          EOF
+
       # Build and push multi-architecture image with both latest and version tags
       - name: Build and push multi-arch image
         uses: docker/build-push-action@v6
