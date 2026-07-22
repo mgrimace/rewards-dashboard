@@ -1,6 +1,7 @@
 import * as U from "../util.js";
 import { cached } from "../api.js";
-import { buildAccumBarHtml, lineChart } from "../charts.js";
+// Import BOTH chart builders
+import { buildAccumBarHtml, buildHeatmapHtml, lineChart } from "../charts.js";
 
 let data = null;
 let accountsPayload = null;
@@ -9,6 +10,11 @@ let mounted = false;
 let context = null;
 
 let selected = null;
+
+// Persistent view mode storage helpers
+const VIEW_STORAGE_KEY = "rewards_dashboard_view_mode";
+let viewMode = localStorage.getItem(VIEW_STORAGE_KEY) || "accum"; // Load stored view or default to 'accum'
+
 const launching = new Set();
 
 const NUMERIC = /^[+\-\u2013]?[\d,.]*$/;
@@ -158,9 +164,12 @@ function renderAccountRows(root) {
   const bucketed = accounts
     .map((a) => ({ key: a.key, days: U.bucketByDay(histories[a.key] || []) }))
     .filter((x) => x.days.length);
+
+  // Require global max for the original accumulation bar view
   const globalMax = bucketed.length
     ? Math.max(1, ...bucketed.flatMap((b) => b.days.map((d) => d.gained)))
     : 1;
+
   const daysByKey = Object.fromEntries(bucketed.map((b) => [b.key, b.days]));
   const todayKey = U.tzDayKey(new Date());
   const isMobile = window.matchMedia("(max-width: 768px)").matches;
@@ -168,9 +177,16 @@ function renderAccountRows(root) {
   container.innerHTML = accounts
     .map((a) => {
       const days = daysByKey[a.key] || null;
-      const barCell = days
-        ? `<div class="accum-track"><div class="accum-bar">${buildAccumBarHtml(days, globalMax, isMobile ? 7 : null)}</div></div>`
-        : '<p class="empty-note" style="font-size:0.78rem;margin:0">No history yet</p>';
+      let barCell = '<p class="empty-note" style="font-size:0.78rem;margin:0">No history yet</p>';
+      
+      if (days) {
+        // Toggle view logic
+        if (viewMode === "heatmap") {
+            barCell = `<div class="heatmap-wrap">${buildHeatmapHtml(days)}</div>`;
+        } else {
+            barCell = `<div class="accum-track"><div class="accum-bar">${buildAccumBarHtml(days, globalMax, isMobile ? 7 : null)}</div></div>`;
+        }
+      }
 
       const todayGained = days?.find((d) => d.dayKey === todayKey)?.gained ?? null;
       const variant = checkVariant(a.status);
@@ -183,7 +199,6 @@ function renderAccountRows(root) {
             ? "Running\u2026"
             : "No run today";
 
-      // Calculate gain from history delta
       const accountHistory = histories[a.key] || [];
       let lastGain = null;
       if (accountHistory.length >= 2) {
@@ -201,6 +216,8 @@ function renderAccountRows(root) {
               dur ? ` \u00b7 <span title="Last run duration">⏱ ${U.escapeHtml(dur)}</span>` : ""
             }${lastGain != null ? ` \u00b7 <span class="gain-val">${U.fmtSigned(lastGain)} points</span>` : ""}`;
 
+      // hide email for screenshots by toggling mask = true      
+      const MASK_EMAILS = true;
       return `<div class="hero-row">
             <div class="hero-bar-cell">${barCell}</div>
             <div class="hero-acc-card">
@@ -209,7 +226,10 @@ function renderAccountRows(root) {
                     <span class="hero-pts-unit">Points</span>
                 </div>
                 <div class="hero-acc-info">
-                    <div class="hero-acc-name">${U.escapeHtml(a.email)}${a.configured ? "" : ' <span class="tag-mini">unconfigured</span>'}</div>
+                    <div class="hero-acc-name">
+                        ${MASK_EMAILS ? `ACCOUNT_${a.index}` : U.escapeHtml(a.email)}
+                        ${a.configured ? "" : ' <span class="tag-mini">unconfigured</span>'}
+                    </div>
                     <div class="hero-acc-meta">
                         <span class="hero-acc-today">
                             ${U.statusPill(badgeStatus)}
@@ -232,9 +252,16 @@ function renderAccountRows(root) {
     })
     .join("");
 
+  // Ensure the timeline and heatmap grids both align right if overflowed
   container.querySelectorAll(".accum-track").forEach((track) => {
     track.scrollLeft = track.scrollWidth;
   });
+  
+  if (viewMode === "heatmap") {
+    container.querySelectorAll(".hero-bar-cell").forEach((cell) => {
+      cell.scrollLeft = cell.scrollWidth;
+    });
+  }
 
   container.querySelectorAll("button[data-run-account]").forEach((btn) =>
     btn.addEventListener("click", () => {
@@ -327,11 +354,6 @@ function renderRunHeader(root, status) {
   } else {
     progressBox.classList.remove("idle");
   }
-
-  const accounts = accountsPayload?.accounts || [];
-  U.$("#accountsSubtitle", root).textContent = accounts.length
-    ? `${accounts.length} account${accounts.length === 1 ? "" : "s"} tracked`
-    : "Daily tracker, configuration & per-account results";
 }
 
 export default {
@@ -361,9 +383,14 @@ export default {
             </section>
 
             <section class="panel hero-panel" id="currentRun" aria-labelledby="current-run-heading">
-                <div class="hero-panel-header">
-                    <h2 id="current-run-heading">Accounts</h2>
-                    <span class="hero-panel-subtitle" id="accountsSubtitle">Loading tracker...</span>
+                <div class="hero-panel-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem;">
+                    <div>
+                        <h2 id="current-run-heading" style="margin:0;">Accounts Overview</h2>
+                    </div>
+                    <div class="seg" id="ovwViewToggle">
+                        <button type="button" class="seg-btn ${viewMode === 'accum' ? 'seg-btn--active' : ''}" data-view="accum">Timeline</button>
+                        <button type="button" class="seg-btn ${viewMode === 'heatmap' ? 'seg-btn--active' : ''}" data-view="heatmap">Heatmap</button>
+                    </div>
                 </div>
                 <div class="hero-layout" id="overviewHeroRows">
                     <p class="empty-note" style="padding:1.25rem">Loading&hellip;</p>
@@ -378,6 +405,18 @@ export default {
                 <div id="ovwTrendChart" class="chart-wrap"></div>
             </section>`;
     mounted = true;
+
+    // Attach event listeners for the toggle and save selection to localStorage
+    const toggleBtns = root.querySelectorAll("#ovwViewToggle .seg-btn");
+    toggleBtns.forEach((btn) => {
+        btn.addEventListener("click", (e) => {
+            toggleBtns.forEach((b) => b.classList.remove("seg-btn--active"));
+            e.target.classList.add("seg-btn--active");
+            viewMode = e.target.dataset.view;
+            localStorage.setItem(VIEW_STORAGE_KEY, viewMode);
+            renderAccountRows(rootEl);
+        });
+    });
   },
   
   async refresh(ctx) {

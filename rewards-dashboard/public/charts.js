@@ -151,11 +151,126 @@ export function barChart(
         </svg>`;
 }
 
-// day
-
+// Chart Constants
 const ACCUM_WINDOW_DAYS = 84; // ~12 weeks
 const ACCUM_MAX_HEIGHT_PCT = 100;
 const ACCUM_MIN_HEIGHT_PCT = 20;
+const HEAT_LEVELS = [0, 75, 150, 225, 300];
+
+export function buildHeatmapHtml(days) {
+  if (!days.length) return "";
+
+  const byDay = new Map(days.map((d) => [d.dayKey, d]));
+  days = [...days].sort((a, b) => a.dayKey.localeCompare(b.dayKey));
+
+  const today = new Date();
+  
+  // Safely format today as YYYY-MM-DD in local time
+  const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+
+  // 1. Anchor to the beginning (Left Justified)
+  // We append T12:00:00 to avoid UTC timezone drift making the day shift to 'yesterday'
+  let start = new Date(days[0].dayKey + "T12:00:00");
+  start.setHours(12, 0, 0, 0);
+
+  // Align to Monday so weeks stay vertical
+  while (start.getDay() !== 1) {
+    start.setDate(start.getDate() - 1);
+  }
+
+  // 2. Calculate how many weeks have passed since the start
+  const msPerDay = 86400000;
+  const elapsedWeeks = Math.ceil((today.getTime() - start.getTime()) / msPerDay / 7);
+  
+  // 3. Force at least 53 weeks (a full year) so the remaining empty squares project to the right.
+  const totalWeeks = Math.max(53, elapsedWeeks + 1);
+
+  // Collect Month Labels accurately calculating width mapping to `.heatmap-cell` (8px + 2px gap)
+  let monthWidths = [];
+  let currentMonthSpan = 0;
+  let lastMonth = -1;
+  let currentMonthName = "";
+  
+  let gridHtml = '<div class="heatmap">';
+
+  for (let week = 0; week < totalWeeks; week++) {
+    gridHtml += '<div class="heatmap-week">';
+    
+    // Evaluate month mappings natively to flex rows above the cell block wrapper
+    const weekStartDay = new Date(start);
+    weekStartDay.setDate(start.getDate() + week * 7);
+    const weekMonth = weekStartDay.getMonth();
+    const weekKey = `${weekStartDay.getFullYear()}-${String(weekMonth + 1).padStart(2, '0')}-01`;
+
+    if (lastMonth === -1) {
+        lastMonth = weekMonth;
+        currentMonthName = localDateLabel(weekKey, { month: "short" });
+        currentMonthSpan = 1;
+    } else if (weekMonth !== lastMonth) {
+        // Drop the first month label for tidiness if it started mid-month (spans 2 weeks or less)
+        if (monthWidths.length === 0 && currentMonthSpan <= 2) {
+            currentMonthName = "";
+        }
+        monthWidths.push({ name: currentMonthName, span: currentMonthSpan });
+        
+        currentMonthSpan = 1;
+        lastMonth = weekMonth;
+        currentMonthName = localDateLabel(weekKey, { month: "short" });
+    } else {
+        currentMonthSpan++;
+    }
+
+    for (let day = 0; day < 7; day++) {
+      const d = new Date(start);
+      d.setDate(start.getDate() + week * 7 + day);
+
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      const entry = byDay.get(key);
+
+      let level = 0;
+
+      if (entry) {
+        if (entry.gained >= HEAT_LEVELS[4]) level = 4;
+        else if (entry.gained >= HEAT_LEVELS[3]) level = 3;
+        else if (entry.gained >= HEAT_LEVELS[2]) level = 2;
+        else if (entry.gained >= HEAT_LEVELS[1]) level = 1;
+      }
+
+      // Any day after today is considered a future/unfilled square
+      const future = key > todayStr;
+
+      const cls = [
+        "heatmap-cell",
+        `heatmap-level-${level}`,
+        future ? "heatmap-future" : "",
+        key === todayStr ? "heatmap-today" : ""
+      ].filter(Boolean).join(" ");
+
+      const title = entry
+        ? `${localDateLabel(key, { weekday: "long", month: "short", day: "numeric" })}\n+${entry.gained.toLocaleString()} pts\nTotal ${entry.lastTotal.toLocaleString()}`
+        : localDateLabel(key, { weekday: "long", month: "short", day: "numeric" });
+
+      gridHtml += `<div class="${cls}" title="${escapeAttr(title)}"></div>`;
+    }
+
+    gridHtml += "</div>";
+  }
+
+  gridHtml += "</div>";
+  
+  if (currentMonthSpan > 0) {
+      monthWidths.push({ name: currentMonthName, span: currentMonthSpan });
+  }
+
+  // Multiply length by week span (8px cell + 2px gap = 10px per mapped column)
+  let monthsHtml = '<div class="heatmap-months" style="display: flex; font-size: 0.65rem; color: var(--text-muted); margin-bottom: 4px; line-height: 1;">';
+  for (const m of monthWidths) {
+      monthsHtml += `<div style="width: ${m.span * 10}px; flex-shrink: 0;">${escapeHtml(m.name)}</div>`;
+  }
+  monthsHtml += '</div>';
+
+  return `<div class="heatmap-container" style="display: flex; flex-direction: column; width: max-content;">${monthsHtml}${gridHtml}</div>`;
+}
 
 export function buildAccumBarHtml(days, globalMaxGained, maxDays = null) {
   const cutoff = new Date();
