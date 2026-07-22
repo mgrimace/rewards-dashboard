@@ -49,11 +49,11 @@ jobs:
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "image=$IMAGE" >> "$GITHUB_OUTPUT"
 
-      # Generate frontend version file
-      - name: Generate version.js
+      # Update the version based on the tag
+      - name: Generate frontend version file
         shell: bash
         run: |
-          cat > rewards-dashboard/version.js <<EOF
+          cat > rewards-dashboard/public/version.js <<EOF
           window.APP_VERSION = "${{ steps.meta.outputs.tag }}";
           EOF
 

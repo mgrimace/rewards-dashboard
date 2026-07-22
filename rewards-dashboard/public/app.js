@@ -19,8 +19,13 @@ import schedule from "./views/schedule.js";
 import configView from "./views/config.js";
 import diagnostics from "./views/diagnostics.js";
 
-const version = window.APP_VERSION || "Development";
-document.getElementById("footerVersion").textContent = version;
+function initVersion() {
+  const version = window.APP_VERSION || "Development";
+
+  if (els.footerVersion) {
+    els.footerVersion.textContent = version;
+  }
+}
 
 const VIEWS = [
   overview,
@@ -55,6 +60,7 @@ const els = {
   footerStatus: U.$("#footerStatus"),
   footerRefresh: U.$("#footerRefresh"),
   footerUpdated: U.$("#footerUpdated"),
+  footerVersion: U.$("#footerVersion"),
 };
 
 const state = {
@@ -464,6 +470,7 @@ function renderCodes() {
 
 // init
 
+initVersion();
 initTheme();
 initControls();
 initTabs();
