@@ -155,13 +155,35 @@ export function barChart(
 const ACCUM_WINDOW_DAYS = 84; // ~12 weeks
 const ACCUM_MAX_HEIGHT_PCT = 100;
 const ACCUM_MIN_HEIGHT_PCT = 20;
-const HEAT_LEVELS = [0, 75, 150, 225, 300];
+const HEATMAP_MIN_WEEKS = 53; // a full year of columns, minimum
+const HEATMAP_FUTURE_BUFFER_WEEKS = 8; // ~2 months of "coming up" room, always
+// Colour intensity is scaled relative to this account's own typical
+// (average) day rather than a fixed point threshold or its single best day
+// - self-calibrates regardless of how many points a given account usually
+// earns, and one big catch-up day doesn't wash every ordinary day out into
+// looking inactive. Ratios are the upper edge of levels 1/2/3 (anything at
+// or above the last one is level 4).
+const HEATMAP_LEVEL_RATIOS = [0.6, 1.1, 1.75];
+
+function heatmapLevel(gained, avg) {
+  if (gained <= 0) return 0;
+  const ratio = gained / avg;
+  if (ratio < HEATMAP_LEVEL_RATIOS[0]) return 1;
+  if (ratio < HEATMAP_LEVEL_RATIOS[1]) return 2;
+  if (ratio < HEATMAP_LEVEL_RATIOS[2]) return 3;
+  return 4;
+}
 
 export function buildHeatmapHtml(days) {
   if (!days.length) return "";
 
   const byDay = new Map(days.map((d) => [d.dayKey, d]));
   days = [...days].sort((a, b) => a.dayKey.localeCompare(b.dayKey));
+
+  const activeGains = days.map((d) => d.gained).filter((g) => g > 0);
+  const avgGained = activeGains.length
+    ? activeGains.reduce((sum, g) => sum + g, 0) / activeGains.length
+    : 1;
 
   const today = new Date();
   
@@ -173,17 +195,28 @@ export function buildHeatmapHtml(days) {
   let start = new Date(days[0].dayKey + "T12:00:00");
   start.setHours(12, 0, 0, 0);
 
+  // Never let the window stretch back further than needed to still leave
+  // HEATMAP_FUTURE_BUFFER_WEEKS of "coming up" room ahead of today - without
+  // this, a long-tenured account's window grows a week wider forever, and
+  // once it passes a year old it stops leaving any future runway at all
+  // (right back to the original "today pinned at the far edge" problem,
+  // just deferred).
+  const earliestAllowed = new Date(today);
+  earliestAllowed.setDate(
+    earliestAllowed.getDate() -
+    (HEATMAP_MIN_WEEKS - HEATMAP_FUTURE_BUFFER_WEEKS) * 7,
+  );
+  if (start < earliestAllowed) start = earliestAllowed;
+
   // Align to Monday so weeks stay vertical
   while (start.getDay() !== 1) {
     start.setDate(start.getDate() - 1);
   }
 
-  // 2. Calculate how many weeks have passed since the start
-  const msPerDay = 86400000;
-  const elapsedWeeks = Math.ceil((today.getTime() - start.getTime()) / msPerDay / 7);
-  
-  // 3. Force at least 53 weeks (a full year) so the remaining empty squares project to the right.
-  const totalWeeks = Math.max(53, elapsedWeeks + 1);
+  // The clamp above guarantees the window is always bounded, so the grid is
+  // always exactly HEATMAP_MIN_WEEKS wide - constant size regardless of how
+  // long the account has been running.
+  const totalWeeks = HEATMAP_MIN_WEEKS;
 
   // Collect Month Labels accurately calculating width mapping to `.heatmap-cell` (8px + 2px gap)
   let monthWidths = [];
@@ -226,15 +259,7 @@ export function buildHeatmapHtml(days) {
 
       const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
       const entry = byDay.get(key);
-
-      let level = 0;
-
-      if (entry) {
-        if (entry.gained >= HEAT_LEVELS[4]) level = 4;
-        else if (entry.gained >= HEAT_LEVELS[3]) level = 3;
-        else if (entry.gained >= HEAT_LEVELS[2]) level = 2;
-        else if (entry.gained >= HEAT_LEVELS[1]) level = 1;
-      }
+      const level = entry ? heatmapLevel(entry.gained, avgGained) : 0;
 
       // Any day after today is considered a future/unfilled square
       const future = key > todayStr;

@@ -174,6 +174,9 @@ function renderAccountRows(root) {
   const todayKey = U.tzDayKey(new Date());
   const isMobile = window.matchMedia("(max-width: 768px)").matches;
 
+  // hide email for screenshots by toggling mask = true
+  const MASK_EMAILS = false;
+
   container.innerHTML = accounts
     .map((a) => {
       const days = daysByKey[a.key] || null;
@@ -216,8 +219,6 @@ function renderAccountRows(root) {
               dur ? ` \u00b7 <span title="Last run duration">⏱ ${U.escapeHtml(dur)}</span>` : ""
             }${lastGain != null ? ` \u00b7 <span class="gain-val">${U.fmtSigned(lastGain)} pts</span>` : ""}`;
 
-      // hide email for screenshots by toggling mask = true      
-      const MASK_EMAILS = false;
       return `<div class="hero-row">
             <div class="hero-bar-cell">${barCell}</div>
             <div class="hero-acc-card">
@@ -252,16 +253,15 @@ function renderAccountRows(root) {
     })
     .join("");
 
-  // Ensure the timeline and heatmap grids both align right if overflowed
+  // The timeline view is a rolling recent-history strip, so scrolling it to
+  // its end shows the most recent days by default - that's still correct.
+  // The heatmap is intentionally left-anchored to where the account's data
+  // starts, with empty "coming up" cells trailing off to the right, so it
+  // must NOT be force-scrolled to its end - that would undo the fix and put
+  // the user right back at a mostly-empty future edge instead of their data.
   container.querySelectorAll(".accum-track").forEach((track) => {
     track.scrollLeft = track.scrollWidth;
   });
-  
-  if (viewMode === "heatmap") {
-    container.querySelectorAll(".hero-bar-cell").forEach((cell) => {
-      cell.scrollLeft = cell.scrollWidth;
-    });
-  }
 
   container.querySelectorAll("button[data-run-account]").forEach((btn) =>
     btn.addEventListener("click", () => {

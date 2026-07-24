@@ -2250,54 +2250,6 @@ tbody tr:hover {
       word-break: keep-all;
     }
 
-  .heatmap-cell{
-      width:6px;
-      height:6px;
-    }
-  
-  .heatmap{
-      gap:1px;
-    }
-
-  .heatmap-week{
-      gap:1px;
-    }
-
-  .accum-track {
-      padding: 2px;
-      border-radius: 5px;
-    }
-  
-  .accum-bar {
-      height: 18px;
-    }
-  
-  .accum-day {
-      width: 8px;
-      flex: 0 0 8px;
-      margin: 0 1px;
-      border-radius: 1.5px;
-    }
-  
-  .accum-week-marker {
-      margin: 0 4px;
-    }
-  
-  .hero-bar-cell .accum-track {
-      flex: 1;
-      min-height: 38px;
-      overflow-y: hidden;
-    }
-  
-  .hero-bar-cell .accum-track::before {
-      display: none;
-    }
-  
-  .hero-bar-cell .accum-bar {
-      height: 100%;
-      min-height: 38px;
-    }
-  
   .hero-row {
       grid-template-columns: 1fr;
     }
