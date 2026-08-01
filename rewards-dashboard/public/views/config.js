@@ -239,7 +239,7 @@ export default {
 
                 <div class="form-actions">
                     <button type="button" id="cfgSave" class="btn btn-primary">Save changes</button>
-                    <button type="button" id="cfgReload" class="btn">Reload from API</button>
+                    <button type="button" id="cfgReload" class="btn" title="Discard unsaved edits and re-fetch config.json from the bot.">Reload from API</button>
                 </div>
             </section>`;
 
