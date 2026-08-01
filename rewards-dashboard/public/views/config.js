@@ -6,6 +6,7 @@ const REDACTED = "***REDACTED***";
 let rootEl = null;
 let loaded = null; // the config exactly as the API returned it
 let meta = null; // { path, redacted }
+let drift = null; // { addedKeys, upToDate } from GET /api/config/diff, or null if unknown
 
 const isPlainObject = (v) =>
   v !== null && typeof v === "object" && !Array.isArray(v);
@@ -96,6 +97,24 @@ function renderToggles() {
   );
 }
 
+function explainConfigError(e) {
+  if (e.status === 403) {
+    return {
+      kind: "warn",
+      message:
+        "Config writes are disabled on the control API. Set <code>API_ALLOW_CONFIG_WRITE=true</code> in the bot&rsquo;s environment and restart it.",
+    };
+  }
+  if (e.status === 422) {
+    const errors = (e.body && e.body.errors) || [];
+    return {
+      kind: "error",
+      message: `<strong>The bot rejected this config:</strong><ul>${errors.map((x) => `<li>${U.escapeHtml(x)}</li>`).join("")}</ul>`,
+    };
+  }
+  return { kind: "error", message: U.escapeHtml(e.message) };
+}
+
 async function save(patch, description) {
   try {
     const res = await api.patchConfig(patch);
@@ -103,24 +122,74 @@ async function save(patch, description) {
     U.toast(`Saved: ${description}. Applies on the next run.`, "success");
     return res;
   } catch (e) {
-    if (e.status === 403) {
-      showNotice(
-        "cfgNotice",
-        "Config writes are disabled on the control API. Set <code>API_ALLOW_CONFIG_WRITE=true</code> in the bot&rsquo;s environment and restart it.",
-      );
-    } else if (e.status === 422) {
-      const errors = (e.body && e.body.errors) || [];
-      showNotice(
-        "cfgNotice",
-        `<strong>The bot rejected this config:</strong><ul>${errors.map((x) => `<li>${U.escapeHtml(x)}</li>`).join("")}</ul>`,
-        "error",
-      );
-    } else {
-      showNotice("cfgNotice", U.escapeHtml(e.message), "error");
-    }
+    const { kind, message } = explainConfigError(e);
+    showNotice("cfgNotice", message, kind);
     U.toast(e.message, "error");
     throw e;
   }
+}
+
+async function checkDrift() {
+  try {
+    drift = await api.configDiff();
+  } catch {
+    drift = null; // best-effort; the rest of the page works fine without it
+  }
+  renderDrift();
+}
+
+function renderDrift() {
+  const el = U.$("#cfgDrift", rootEl);
+  if (!el) return;
+  if (!drift || drift.upToDate || !drift.addedKeys?.length) {
+    el.hidden = true;
+    el.innerHTML = "";
+    return;
+  }
+  const n = drift.addedKeys.length;
+  el.hidden = false;
+  el.className = "notice notice--warn";
+  el.innerHTML = `
+    <strong>Config update available</strong> &mdash; ${n} field${n === 1 ? "" : "s"} added in a recent script update:
+    <ul>${drift.addedKeys.map((k) => `<li><code>${U.escapeHtml(k)}</code></li>`).join("")}</ul>
+    <div class="notice-actions">
+      <button type="button" id="cfgSyncBtn" class="btn btn-primary btn-small">Sync now</button>
+      <span class="notice-sub">Adds the missing fields with their defaults. Your existing values are never changed.</span>
+    </div>`;
+  U.$("#cfgSyncBtn", rootEl).addEventListener("click", doSync);
+}
+
+async function doSync() {
+  const btn = U.$("#cfgSyncBtn", rootEl);
+  btn.disabled = true;
+  btn.textContent = "Syncing\u2026";
+  try {
+    const result = await api.syncConfig();
+    showNotice("cfgNotice", "");
+    U.toast(
+      result.patched
+        ? `Synced ${result.addedKeys.length} field${result.addedKeys.length === 1 ? "" : "s"}. Applies on the next run.`
+        : "Already up to date.",
+      "success",
+    );
+    await loadConfig(U.$("#cfgReveal", rootEl)?.checked || false); // reload config.json (now includes the synced fields) and re-check drift
+  } catch (e) {
+    const { kind, message } = explainConfigError(e);
+    showNotice("cfgNotice", message, kind);
+    btn.disabled = false;
+    btn.textContent = "Sync now";
+  }
+}
+
+// Shared by initial load, "Reload from API", the reveal-secrets toggle, and
+// post-sync reload - one place that fetches config.json + drift status together.
+async function loadConfig(reveal) {
+  const res = await api.config(reveal);
+  loaded = res.config;
+  meta = { path: res.path, redacted: res.redacted };
+  paint();
+  checkDrift(); // not awaited - drift banner fills in once it resolves, doesn't block the rest of the page
+  return res;
 }
 
 function paint() {
@@ -140,6 +209,7 @@ export default {
     rootEl = root;
     root.innerHTML = `
             <p class="notice notice--warn" id="cfgNotice" hidden></p>
+            <div id="cfgDrift" hidden></div>
 
             <section class="panel" aria-labelledby="cfg-toggle-heading">
                 <div class="panel-head">
@@ -177,10 +247,7 @@ export default {
 
     U.$("#cfgReveal", root).addEventListener("change", async (e) => {
       try {
-        const res = await ctx.api.config(e.target.checked);
-        loaded = res.config;
-        meta = { path: res.path, redacted: res.redacted };
-        paint();
+        const res = await loadConfig(e.target.checked);
         if (e.target.checked && res.redacted) {
           showNotice(
             "cfgNotice",
@@ -237,10 +304,7 @@ export default {
   async refresh(ctx) {
     try {
       const reveal = U.$("#cfgReveal", rootEl)?.checked || false;
-      const res = await ctx.api.config(reveal);
-      loaded = res.config;
-      meta = { path: res.path, redacted: res.redacted };
-      paint();
+      await loadConfig(reveal);
     } catch (e) {
       showNotice("cfgNotice", U.escapeHtml(e.message), "error");
     }

@@ -61,6 +61,8 @@ export const api = {
     call("GET", `/api/config${reveal ? "?reveal=1" : ""}`),
   replaceConfig: (cfg) => call("PUT", "/api/config", cfg),
   patchConfig: (patch) => call("PATCH", "/api/config", patch),
+  configDiff: () => call("GET", "/api/config/diff"),
+  syncConfig: () => call("POST", "/api/config/sync"),
 
   diagnostics: () => call("GET", "/api/diagnostics"),
   diagnosticFile: (name, file) =>

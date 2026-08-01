@@ -660,6 +660,17 @@ main {
   border-color: var(--accent);
   color: var(--text);
 }
+.notice-actions {
+  margin-top: 0.5rem;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+}
+.notice-sub {
+  color: var(--text-muted);
+  font-size: 0.78rem;
+}
 
 /* Buttons */
 .btn {

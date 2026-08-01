@@ -601,6 +601,14 @@ async function handleApi(req, res, url) {
     }
   }
 
+  if (pathname === "/api/config/diff" && method === "GET") {
+    return forward(res, "GET", "/config/diff");
+  }
+
+  if (pathname === "/api/config/sync" && method === "POST") {
+    return forward(res, "POST", "/config/sync", {});
+  }
+
   // diag
   if (pathname === "/api/diagnostics" && method === "GET") {
     return forward(res, "GET", "/diagnostics");
