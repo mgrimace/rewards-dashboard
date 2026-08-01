@@ -23,7 +23,7 @@ function initVersion() {
   const version = window.APP_VERSION || "Development";
 
   if (els.footerVersion) {
-    els.footerVersion.textContent = version;
+    els.footerVersion.textContent = `Microsoft Rewards Dashboard:${version}`;
   }
 }
 
@@ -58,8 +58,7 @@ const els = {
   loginCodesList: U.$("#loginCodesList"),
   loginCodesAnnounce: U.$("#loginCodesAnnounce"),
   footerStatus: U.$("#footerStatus"),
-  footerRefresh: U.$("#footerRefresh"),
-  footerUpdated: U.$("#footerUpdated"),
+  footerScriptVersion: U.$("#footerScriptVersion"),
   footerVersion: U.$("#footerVersion"),
 };
 
@@ -297,7 +296,7 @@ function renderStatusBadge() {
 
 function renderFooter() {
     // Use the els object instead of querying the DOM every time
-    const { footerStatus, footerRefresh, footerUpdated } = els;
+    const { footerStatus, footerScriptVersion } = els;
 
     if (!footerStatus) return;
 
@@ -312,11 +311,8 @@ function renderFooter() {
                     ? "Running"
                     : "Connected";
 
-    footerRefresh.textContent =
-        `Auto-refresh ${(currentView()?.interval ?? 0) / 1000}s`;
-
-    footerUpdated.textContent =
-        `Updated ${new Date().toLocaleTimeString()}`;
+    footerScriptVersion.textContent =
+        `Microsoft Rewards Script:${s?.version || "\u2013"}`;
 }
 
 function renderControlStrip() {
