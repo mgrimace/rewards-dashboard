@@ -1308,6 +1308,11 @@ tbody tr:hover {
   background: var(--accent-hover);
 }
 
+.accum-day--today {
+  outline: 1px solid var(--text);
+  outline-offset: 1px;
+}
+
 .accum-gap {
   align-self: center;
   height: 6px;

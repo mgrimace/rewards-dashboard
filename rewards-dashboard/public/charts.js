@@ -302,6 +302,9 @@ export function buildAccumBarHtml(days, globalMaxGained, maxDays = null) {
   cutoff.setDate(cutoff.getDate() - ACCUM_WINDOW_DAYS);
   const cutoffKey = cutoff.toISOString().slice(0, 10);
 
+  const today = new Date();
+  const todayKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+
   let windowed = days.filter((d) => d.dayKey >= cutoffKey);
   if (maxDays != null) windowed = windowed.slice(-maxDays);
   if (!windowed.length) return "";
@@ -346,6 +349,7 @@ export function buildAccumBarHtml(days, globalMaxGained, maxDays = null) {
       month: "short",
       day: "numeric",
     });
+    const isToday = day.dayKey === todayKey;
     const heightPct = Math.max(
       ACCUM_MIN_HEIGHT_PCT,
       Math.round((day.gained / globalMaxGained) * ACCUM_MAX_HEIGHT_PCT),
@@ -353,7 +357,7 @@ export function buildAccumBarHtml(days, globalMaxGained, maxDays = null) {
     const opacity = (0.35 + 0.65 * (i / (len - 1 || 1))).toFixed(2);
     altToggle = !altToggle;
 
-    html += `<div class="accum-day ${altToggle ? "accum-day--a" : "accum-day--b"}" style="height:${heightPct}%;opacity:${opacity}" title="${escapeAttr(dateLabel)}: +${day.gained.toLocaleString()} pts (total: ${day.lastTotal.toLocaleString()})"></div>`;
+    html += `<div class="accum-day ${altToggle ? "accum-day--a" : "accum-day--b"}${isToday ? " accum-day--today" : ""}" style="height:${heightPct}%;opacity:${opacity}" title="${escapeAttr(dateLabel)}${isToday ? " (today)" : ""}: +${day.gained.toLocaleString()} pts (total: ${day.lastTotal.toLocaleString()})"></div>`;
   }
 
   return html;
