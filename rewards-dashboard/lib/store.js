@@ -10,6 +10,14 @@ const DB_FILE = path.join(DATA_DIR, "dashboard.sqlite");
 
 const MAX_ACTIVITY_ROWS = 5000;
 
+// How long after a run's start a duplicate RUN-START line (the bot logs one
+// per cluster worker for the SAME run, "a second or so" after the primary's -
+// see the run-start case in apply() below) can still be treated as an echo
+// of that run rather than a brand new one. Generous relative to "a second or
+// so", but far below any real run's duration - this only needs to bridge the
+// worker-forking window, not distinguish it from a legitimately short run.
+const RUN_START_ECHO_WINDOW_MS = 2 * 60 * 1000;
+
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS meta (
     key TEXT PRIMARY KEY,
@@ -192,7 +200,7 @@ class Store {
                 ON CONFLICT(id) DO NOTHING
             `),
       findRunningRun: this.db.prepare(
-        `SELECT id FROM runs WHERE status = 'running' ORDER BY start_ts DESC LIMIT 1`,
+        `SELECT id, start_ts as startTs FROM runs WHERE status = 'running' ORDER BY start_ts DESC LIMIT 1`,
       ),
       closeRun: this.db.prepare(`
                 UPDATE runs SET status = 'done', end_ts = ?, accounts_processed = ?,
@@ -341,10 +349,32 @@ class Store {
         // Only the first one (nothing currently 'running') starts a new
         // row; later ones for the same run are redundant echoes and must
         // be ignored, not treated as evidence the previous row crashed.
+        //
+        // A 'running' row can also be a stale leftover from a run whose
+        // RUN-END (and process-exit signal) never reached the store at all -
+        // e.g. a container restart/upgrade killed it mid-run, or a cluster
+        // worker's exit was missed. Left unchecked that permanently wedges
+        // every future run: this event is dropped forever (never even
+        // reaching the activity feed, since we return before _pushActivity)
+        // and any later RUN-END gets misattributed to that ancient row
+        // instead of getting a fresh one of its own. Tell the two cases
+        // apart by age: a real duplicate echo fires within seconds of the
+        // row it belongs to; anything older is stale and gets closed out.
         const alreadyRunning = this.stmts.findRunningRun.get();
         if (alreadyRunning) {
-          changed = false;
-          break;
+          const ageMs = Date.parse(event.ts) - Date.parse(alreadyRunning.startTs);
+          const isEcho = Number.isFinite(ageMs) && ageMs >= 0 && ageMs < RUN_START_ECHO_WINDOW_MS;
+          if (isEcho) {
+            changed = false;
+            break;
+          }
+          this.stmts.closeRunOnExit.run(
+            "crashed",
+            event.ts,
+            null,
+            null,
+            alreadyRunning.id,
+          );
         }
         this.stmts.insertRunStart.run(
           event.ts,
