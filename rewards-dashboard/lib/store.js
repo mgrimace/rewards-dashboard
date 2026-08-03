@@ -10,13 +10,24 @@ const DB_FILE = path.join(DATA_DIR, "dashboard.sqlite");
 
 const MAX_ACTIVITY_ROWS = 5000;
 
-// How long after a run's start a duplicate RUN-START line (the bot logs one
-// per cluster worker for the SAME run, "a second or so" after the primary's -
-// see the run-start case in apply() below) can still be treated as an echo
-// of that run rather than a brand new one. Generous relative to "a second or
-// so", but far below any real run's duration - this only needs to bridge the
-// worker-forking window, not distinguish it from a legitimately short run.
-const RUN_START_ECHO_WINDOW_MS = 2 * 60 * 1000;
+// Last-resort cutoff for a 'running' row whose account roster never filled
+// (see the run-start case in apply() below) - e.g. the process died after
+// only 1 of N accounts ever started, so nothing will ever complete that
+// roster to trigger the normal check. Deliberately very long: a user can
+// configure any number of accounts, the first run of the day can take hours
+// to work through all of them, and any single account can sit blocked far
+// longer still waiting on a manual login-approval prompt - so this only
+// exists to bound a truly abandoned run, not to police normal durations.
+const RUN_STALE_BACKSTOP_MS = 20 * 60 * 60 * 1000;
+
+// How long to wait after the last ACCOUNT-END/ACCOUNT-ERROR before assuming
+// the bot's own RUN-END is never coming and closing the run ourselves. The
+// bot normally logs RUN-END within ~1s of the last account finishing; this
+// only kicks in for a known bot-side clustering bug where worker-exit
+// tracking undercounts and the run's own master process waits forever for
+// exits that already happened, so RUN-END never fires despite every account
+// having actually completed.
+const AUTO_CLOSE_GRACE_MS = 15 * 1000;
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS meta (
@@ -94,6 +105,7 @@ class Store {
     this._migrate();
     this._prepare();
     this._lastTs = this._readMeta("lastTs");
+    this._autoCloseTimer = null;
   }
 
   _migrate() {
@@ -200,8 +212,23 @@ class Store {
                 ON CONFLICT(id) DO NOTHING
             `),
       findRunningRun: this.db.prepare(
-        `SELECT id, start_ts as startTs FROM runs WHERE status = 'running' ORDER BY start_ts DESC LIMIT 1`,
+        `SELECT id, start_ts as startTs, total_accounts as totalAccounts FROM runs WHERE status = 'running' ORDER BY start_ts DESC LIMIT 1`,
       ),
+      accountsStartedSince: this.db.prepare(`
+                SELECT COUNT(DISTINCT email) as n
+                FROM activity
+                WHERE title = 'ACCOUNT-START' AND email IS NOT NULL AND ts >= ?
+            `),
+      accountsResolvedSince: this.db.prepare(`
+                SELECT COUNT(DISTINCT email) as n, MAX(ts) as lastTs
+                FROM activity
+                WHERE title IN ('ACCOUNT-END', 'ACCOUNT-ERROR') AND email IS NOT NULL AND ts >= ?
+            `),
+      sumHistorySince: this.db.prepare(`
+                SELECT COALESCE(SUM(gained), 0) as gained, COALESCE(SUM(points), 0) as points
+                FROM account_history WHERE ts >= ?
+            `),
+
       closeRun: this.db.prepare(`
                 UPDATE runs SET status = 'done', end_ts = ?, accounts_processed = ?,
                     total_gained = ?, old_total = ?, new_total = ?, runtime_min = ?
@@ -322,6 +349,7 @@ class Store {
           event.durationSec,
         );
         this._pushActivity(event);
+        this._scheduleAutoCloseCheck();
         break;
       }
       case "account-error": {
@@ -329,6 +357,7 @@ class Store {
           this.stmts.upsertAccountError.run(event.email, event.ts, event.error);
         }
         this._pushActivity(event);
+        this._scheduleAutoCloseCheck();
         break;
       }
       case "streak-protection": {
@@ -345,25 +374,40 @@ class Store {
       case "run-start": {
         // With clustering on, the bot logs one RUN-START line per worker
         // spawned for the SAME run, not once per run - e.g. Clusters: 3
-        // produces 3-4 near-identical RUN-START lines a second or so apart.
-        // Only the first one (nothing currently 'running') starts a new
-        // row; later ones for the same run are redundant echoes and must
-        // be ignored, not treated as evidence the previous row crashed.
+        // can produce several near-identical RUN-START lines, one per
+        // worker, and workers have been observed spawning minutes apart
+        // rather than seconds (accountDelay-dependent) - so elapsed time
+        // alone can't tell an echo apart from a genuinely new run. Only
+        // the first one (nothing currently 'running') starts a new row;
+        // later ones for the same run are redundant echoes and must be
+        // ignored, not treated as evidence the previous row crashed.
         //
-        // A 'running' row can also be a stale leftover from a run whose
-        // RUN-END (and process-exit signal) never reached the store at all -
-        // e.g. a container restart/upgrade killed it mid-run, or a cluster
-        // worker's exit was missed. Left unchecked that permanently wedges
-        // every future run: this event is dropped forever (never even
-        // reaching the activity feed, since we return before _pushActivity)
-        // and any later RUN-END gets misattributed to that ancient row
-        // instead of getting a fresh one of its own. Tell the two cases
-        // apart by age: a real duplicate echo fires within seconds of the
-        // row it belongs to; anything older is stale and gets closed out.
+        // Use the account roster instead of a clock: while the currently
+        // 'running' row hasn't yet seen ACCOUNT-START for all the accounts
+        // it declared, any further RUN-START is still just another worker
+        // of that same run. Once every declared account has started, the
+        // roster is complete and a new RUN-START can only mean a new run -
+        // this also catches a 'running' row stuck by a lost RUN-END/exit
+        // signal (e.g. a container restart mid-run, or a missed cluster
+        // worker exit), which otherwise permanently wedges every future run
+        // (this event would be dropped forever, never even reaching the
+        // activity feed, and any later RUN-END would misattribute to that
+        // ancient row instead of getting a fresh one of its own).
+        //
+        // The one gap the roster check can't cover is a run that died
+        // before its roster ever filled (e.g. crashed after account 1 of
+        // 3) - nothing will ever complete that roster, so fall back to a
+        // generous time backstop just for that case.
         const alreadyRunning = this.stmts.findRunningRun.get();
         if (alreadyRunning) {
+          const startedCount = alreadyRunning.totalAccounts
+            ? this.stmts.accountsStartedSince.get(alreadyRunning.startTs).n
+            : 0;
+          const rosterIncomplete =
+            alreadyRunning.totalAccounts != null && startedCount < alreadyRunning.totalAccounts;
           const ageMs = Date.parse(event.ts) - Date.parse(alreadyRunning.startTs);
-          const isEcho = Number.isFinite(ageMs) && ageMs >= 0 && ageMs < RUN_START_ECHO_WINDOW_MS;
+          const withinBackstop = Number.isFinite(ageMs) && ageMs >= 0 && ageMs < RUN_STALE_BACKSTOP_MS;
+          const isEcho = rosterIncomplete && withinBackstop;
           if (isEcho) {
             changed = false;
             break;
@@ -470,6 +514,59 @@ class Store {
     return changed;
   }
 
+  // Defers the stale-running-run check rather than running it inline: the
+  // bot's own RUN-END normally follows within ~1s of the last account, so
+  // firing immediately would race it and risk closing the run ourselves
+  // right before the real RUN-END arrives, which would then find no
+  // 'running' row and create a duplicate orphan instead of just updating
+  // this one. Rescheduling on every account-end/error also means the timer
+  // only ever fires AUTO_CLOSE_GRACE_MS after the LAST one in a batch.
+  _scheduleAutoCloseCheck() {
+    if (this._autoCloseTimer) clearTimeout(this._autoCloseTimer);
+    this._autoCloseTimer = setTimeout(() => {
+      this._autoCloseTimer = null;
+      try {
+        this._tryAutoCloseStaleRun();
+      } catch {
+        /* best-effort safety net - a miss here just leaves the row as-is */
+      }
+    }, AUTO_CLOSE_GRACE_MS);
+    if (this._autoCloseTimer.unref) this._autoCloseTimer.unref();
+  }
+
+  // Safety net for the bot-side clustering bug where a worker's exit is
+  // never observed by its primary, so 'activeWorkers' never reaches 0 and
+  // RUN-END is never logged even though every account actually finished.
+  // Once every account the run declared (total_accounts) has resolved
+  // (ACCOUNT-END or ACCOUNT-ERROR) since it started, treat the run as done
+  // and derive its totals from account_history instead of waiting forever.
+  _tryAutoCloseStaleRun() {
+    const running = this.stmts.findRunningRun.get();
+    if (!running || !running.totalAccounts) return;
+
+    const resolved = this.stmts.accountsResolvedSince.get(running.startTs);
+    if (!resolved || resolved.n < running.totalAccounts) return;
+
+    const totals = this.stmts.sumHistorySince.get(running.startTs);
+    const gained = totals.gained || 0;
+    const newTotal = totals.points || 0;
+    const oldTotal = newTotal - gained;
+    const endTs = resolved.lastTs || new Date().toISOString();
+    const runtimeMin = Number(
+      ((Date.parse(endTs) - Date.parse(running.startTs)) / 60000).toFixed(1),
+    );
+
+    this.stmts.closeRun.run(
+      endTs,
+      running.totalAccounts,
+      gained,
+      oldTotal,
+      newTotal,
+      runtimeMin,
+      running.id,
+    );
+  }
+
   closeRunOnExit(exit) {
     const running = this.stmts.findRunningRun.get();
     if (!running) return false;
@@ -550,6 +647,7 @@ class Store {
   }
 
   close() {
+    if (this._autoCloseTimer) clearTimeout(this._autoCloseTimer);
     this.saveNow();
     this.db.close();
   }
