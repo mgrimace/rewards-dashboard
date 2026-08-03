@@ -186,6 +186,7 @@ const PILLS = {
   done: ["pill-success", "Done"],
   error: ["pill-error", "Error"],
   crashed: ["pill-error", "Crashed"],
+  interrupted: ["pill-warn", "Interrupted"],
   stopped: ["pill-warn", "Stopped"],
   running: ["pill-running", "Running"],
   starting: ["pill-running", "Starting"],

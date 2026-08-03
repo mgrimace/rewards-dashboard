@@ -17,6 +17,11 @@ const RUN_START_RE =
   /^Starting Microsoft Rewards Script\s\|\sv([\w.\-]+)\s\|\sAccounts:\s(\d+)\s\|\sClusters:\s(\d+)$/;
 const RUN_END_RE =
   /^Completed all accounts\s\|\saccountsProcessed=(\d+)\s\|\spointsGained=(-?\d+)\s\|\spreviousBalance=(\d+)\s\|\scurrentBalance=(\d+)\s\|\sruntimeMinutes=([\d.]+)$/;
+// src/index.ts's waitBeforeNextAccount() - with accountDelay, accounts start
+// one at a time now rather than together, so this wait can be a large
+// fraction of the run's total time.
+const ACCOUNT_DELAY_RE =
+  /^Waiting\s([\d.]+)\sseconds before starting the next account$/;
 const STREAK_PROTECTION_RE =
   /^Snapshot complete\s\|\soffers=(\d+)\s\|\sreportable=(\d+)\s\|\sstreaks=(\d+)\s\|\sstreakProtectionEnabled=(true|false)\s\|\sstreakProtectionRemainingDays=(\d+|null)\s\|\sstreakCounter=(\d+|null)\s\|\slevel=([^|]+)\s\|\saccount=(\S+@\S+)$/;
 
@@ -147,6 +152,11 @@ function parseLine(rawLine) {
           runtimeMin: Number(am[5]),
         };
       }
+      break;
+    }
+    case "ACCOUNT-DELAY": {
+      const am = ACCOUNT_DELAY_RE.exec(message);
+      if (am) return { ...base, kind: "account-delay", seconds: Number(am[1]) };
       break;
     }
     case "REACT-PARSE": {

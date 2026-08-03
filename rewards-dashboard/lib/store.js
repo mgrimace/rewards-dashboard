@@ -106,6 +106,9 @@ class Store {
     this._prepare();
     this._lastTs = this._readMeta("lastTs");
     this._autoCloseTimer = null;
+    // Ephemeral (not persisted) - transient "waiting between accounts" state
+    // is only meaningful while live, unlike everything else in this class.
+    this._pendingDelay = null;
   }
 
   _migrate() {
@@ -246,9 +249,22 @@ class Store {
                        exit_code as exitCode, exit_signal as exitSignal
                 FROM runs ORDER BY COALESCE(start_ts, end_ts) DESC LIMIT ?
             `),
-      closeRunOnExit: this.db.prepare(`
-                UPDATE runs SET status = ?, end_ts = ?, exit_code = ?, exit_signal = ?
+      // Unified terminal-state closer used whenever we're ending a run
+      // without the bot's own authoritative RUN-END data (crash/stop/
+      // interrupt/auto-close) - stats are derived from account_history
+      // instead, see _closeRunningRun().
+      closeRunFull: this.db.prepare(`
+                UPDATE runs SET status = ?, end_ts = ?, accounts_processed = ?,
+                    total_gained = ?, old_total = ?, new_total = ?, runtime_min = ?,
+                    exit_code = ?, exit_signal = ?
                 WHERE id = ?
+            `),
+      orphanedRunningAccounts: this.db.prepare(
+        "SELECT email FROM accounts WHERE status = 'running' AND last_start_at >= ?",
+      ),
+      markAccountInterrupted: this.db.prepare(`
+                UPDATE accounts SET status = 'error', last_end_at = ?, last_error = ?
+                WHERE email = ? AND status = 'running'
             `),
       allHistories: this.db.prepare(`
                 SELECT email, ts, points, gained, duration_sec as durationSec
@@ -292,6 +308,12 @@ class Store {
     return this._lastTs;
   }
 
+  // Null once no wait is in progress (never set, resolved by the next
+  // ACCOUNT-START, or cleared because the run itself ended/closed).
+  get pendingDelay() {
+    return this._pendingDelay;
+  }
+
   _pushActivity(event) {
     this.stmts.insertActivity.run(
       event.ts,
@@ -323,6 +345,7 @@ class Store {
 
     switch (event.kind) {
       case "account-start": {
+        this._pendingDelay = null;
         this.stmts.upsertAccountStart.run(
           event.email,
           event.userName || null,
@@ -358,6 +381,11 @@ class Store {
         }
         this._pushActivity(event);
         this._scheduleAutoCloseCheck();
+        break;
+      }
+      case "account-delay": {
+        this._pendingDelay = { seconds: event.seconds, sinceTs: event.ts };
+        this._pushActivity(event);
         break;
       }
       case "streak-protection": {
@@ -412,13 +440,14 @@ class Store {
             changed = false;
             break;
           }
-          this.stmts.closeRunOnExit.run(
-            "crashed",
-            event.ts,
-            null,
-            null,
-            alreadyRunning.id,
-          );
+          // We only know a new run started before the old one finished
+          // normally - not why (could be a real crash, or just as likely an
+          // intentional container recreate, e.g. pulling an updated image
+          // mid-run). "interrupted" reflects that honestly instead of
+          // guessing "crashed". markInterruptedByBackendRestart() below
+          // handles the common container-recreate case immediately instead
+          // of leaving it to this backstop.
+          this._closeRunningRun(alreadyRunning, "interrupted", event.ts);
         }
         this.stmts.insertRunStart.run(
           event.ts,
@@ -449,13 +478,7 @@ class Store {
         // dashboard/API still relies on closeRunOnExit for that case.
         const stillRunning = this.stmts.findRunningRun.get();
         if (stillRunning) {
-          this.stmts.closeRunOnExit.run(
-            "crashed",
-            event.ts,
-            null,
-            null,
-            stillRunning.id,
-          );
+          this._closeRunningRun(stillRunning, "interrupted", event.ts);
         }
         if (event.pid) {
           this._pushActivity({
@@ -466,6 +489,7 @@ class Store {
         break;
       }
       case "run-end": {
+        this._pendingDelay = null;
         const running = this.stmts.findRunningRun.get();
         if (running) {
           this.stmts.closeRun.run(
@@ -534,6 +558,45 @@ class Store {
     if (this._autoCloseTimer.unref) this._autoCloseTimer.unref();
   }
 
+  // Shared terminal-state closer for any 'running' row being ended without
+  // the bot's own authoritative RUN-END line (auto-close/crash/stop/
+  // interrupt) - derives accountsProcessed/gained/totals from
+  // account_history instead, and demotes any account this run left stuck at
+  // 'running' to 'error', since nothing else is coming for it once the run
+  // itself is closed.
+  _closeRunningRun(running, status, endTs, { code = null, signal = null } = {}) {
+    this._pendingDelay = null;
+    const totals = this.stmts.sumHistorySince.get(running.startTs);
+    const resolved = this.stmts.accountsResolvedSince.get(running.startTs);
+    const gained = totals.gained || 0;
+    const newTotal = totals.points || 0;
+    const oldTotal = newTotal - gained;
+    const runtimeMin = Number(
+      ((Date.parse(endTs) - Date.parse(running.startTs)) / 60000).toFixed(1),
+    );
+
+    this.stmts.closeRunFull.run(
+      status,
+      endTs,
+      resolved.n || 0,
+      gained,
+      oldTotal,
+      newTotal,
+      runtimeMin,
+      code,
+      signal,
+      running.id,
+    );
+
+    for (const row of this.stmts.orphanedRunningAccounts.all(running.startTs)) {
+      this.stmts.markAccountInterrupted.run(
+        endTs,
+        `Run ${status} before this account finished`,
+        row.email,
+      );
+    }
+  }
+
   // Safety net for the bot-side clustering bug where a worker's exit is
   // never observed by its primary, so 'activeWorkers' never reaches 0 and
   // RUN-END is never logged even though every account actually finished.
@@ -547,24 +610,7 @@ class Store {
     const resolved = this.stmts.accountsResolvedSince.get(running.startTs);
     if (!resolved || resolved.n < running.totalAccounts) return;
 
-    const totals = this.stmts.sumHistorySince.get(running.startTs);
-    const gained = totals.gained || 0;
-    const newTotal = totals.points || 0;
-    const oldTotal = newTotal - gained;
-    const endTs = resolved.lastTs || new Date().toISOString();
-    const runtimeMin = Number(
-      ((Date.parse(endTs) - Date.parse(running.startTs)) / 60000).toFixed(1),
-    );
-
-    this.stmts.closeRun.run(
-      endTs,
-      running.totalAccounts,
-      gained,
-      oldTotal,
-      newTotal,
-      runtimeMin,
-      running.id,
-    );
+    this._closeRunningRun(running, "done", resolved.lastTs || new Date().toISOString());
   }
 
   closeRunOnExit(exit) {
@@ -582,14 +628,39 @@ class Store {
     // in for crashes/kills, where no RUN-END line is ever coming.
     if (!signal && code === 0) return false;
 
+    // This path comes from the Control API directly observing its own child
+    // process exit, so (unlike the "interrupted" paths above) we have real
+    // evidence here: a signal means something intentionally stopped it
+    // (stopped), while a bare non-zero code with no signal means the app
+    // exited on its own with a failure (crashed).
     const status = signal ? "stopped" : "crashed";
-    this.stmts.closeRunOnExit.run(
+    this._closeRunningRun(
+      running,
       status,
       exit?.at || new Date().toISOString(),
-      code,
-      signal,
-      running.id,
+      { code, signal },
     );
+    return true;
+  }
+
+  // Called when the dashboard detects the Control API/container itself
+  // restarted mid-poll (health.uptimeSec went backwards) - a much faster and
+  // more direct signal than waiting for a new RUN-START to eventually prove
+  // the old row is stale. Covers container recreation for any reason
+  // (image update, manual restart, OOM kill, host reboot), which is why the
+  // result is "interrupted" rather than "crashed": we only know the backend
+  // vanished, not why.
+  //
+  // notStartedAfter guards a race with the SSE log stream, which can notice
+  // the same disconnect on its own and reconnect - possibly processing a
+  // brand new RUN-START - before this poll-driven check runs. Only close a
+  // row that was already 'running' as of the last known-good health check;
+  // never one that could be that legitimate new run.
+  markInterruptedByBackendRestart(at = new Date().toISOString(), { notStartedAfter = null } = {}) {
+    const running = this.stmts.findRunningRun.get();
+    if (!running) return false;
+    if (notStartedAfter && running.startTs >= notStartedAfter) return false;
+    this._closeRunningRun(running, "interrupted", at);
     return true;
   }
 

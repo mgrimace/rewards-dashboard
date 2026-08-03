@@ -75,6 +75,15 @@ function checkVariant(status) {
   );
 }
 
+// pendingDelay is only ever forward-looking (cleared the moment the next
+// account actually starts), so a stale/expired one just yields null here.
+function pendingDelayLabel(pendingDelay) {
+  if (!pendingDelay) return null;
+  const elapsedSec = (Date.now() - Date.parse(pendingDelay.sinceTs)) / 1000;
+  const remaining = Math.round(pendingDelay.seconds - elapsedSec);
+  return remaining > 0 ? `next account in ~${remaining}s` : null;
+}
+
 function controlState() {
   const status = context?.status;
   const usable = Boolean(status?.reachable && status?.authOk !== false);
@@ -342,6 +351,7 @@ function renderRunHeader(root, status) {
     total ? `${done}/${total} accounts done` : `${done} accounts seen`,
     run?.clusters != null ? `${run.clusters} cluster${run.clusters === 1 ? "" : "s"}` : null,
     run?.collected != null ? `${U.fmtSigned(run.collected)} points` : null,
+    active ? pendingDelayLabel(status?.pendingDelay) : null,
   ]
     .filter(Boolean)
     .join(" \u00b7 ");

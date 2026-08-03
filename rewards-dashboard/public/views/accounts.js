@@ -172,11 +172,13 @@ function renderAccountPanel(a, live) {
   const protection = protectionPresentation(a);
   const { usable, running } = controlState();
 
-  const statusKey = launching.has(a.index)
-    ? "starting"
-    : live && running
-      ? "running"
-      : "idle";
+  // Accounts now start one at a time (accountDelay), so mid-run there can be
+  // several accounts that already finished this run while another is still
+  // going - `live` just means "has a record in this run", true for both.
+  // a.status is this account's own last-observed outcome (idle/running/
+  // success/error), so it correctly tells finished accounts apart from the
+  // one actually in progress right now.
+  const statusKey = launching.has(a.index) ? "starting" : a.status;
 
   const runButton =
     a.configured && Number.isInteger(a.index)

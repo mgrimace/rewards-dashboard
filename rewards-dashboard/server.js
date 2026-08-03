@@ -112,6 +112,7 @@ const backend = {
 
 let lastLogId = null;
 let lastHealthUptime = null;
+let lastHealthyCheckedAt = null;
 
 function currentState() {
   return {
@@ -134,6 +135,7 @@ function currentState() {
     remoteScheduleSupported: backend.remoteScheduleSupported === true,
     stream: hub.stats,
     lastEventAt: store.lastTs,
+    pendingDelay: store.pendingDelay,
     codes: pendingLoginCodes.list(),
   };
 }
@@ -148,6 +150,7 @@ hub.on("entry", (entry) => {
     const event = line ? parseLine(line) : null;
     if (event) {
       store.apply(event);
+      hub.broadcast("state", currentState());
       if (event.kind === "login-number") {
         pendingLoginCodes.add(event.userName, event.number, event.ts);
         hub.broadcast("codes", { codes: pendingLoginCodes.list() });
@@ -199,6 +202,9 @@ async function pollOnce() {
   backend.uptimeSec =
     typeof health.uptimeSec === "number" ? health.uptimeSec : null;
   backend.authRequired = health.authRequired === true;
+  // Snapshot before overwriting: this is our cutoff for "definitely started
+  // before the restart we're about to react to", not this poll's own time.
+  const priorHealthyCheckedAt = lastHealthyCheckedAt;
   backend.checkedAt = new Date().toISOString();
   backend.lastError = null;
 
@@ -206,10 +212,35 @@ async function pollOnce() {
     if (lastHealthUptime != null && health.uptimeSec < lastHealthUptime) {
       log("warn", "Control API restarted - resetting the log cursor.");
       lastLogId = null;
+      // The container (bot + Control API together) can be torn down mid-run
+      // for all sorts of ordinary reasons (image update, manual restart,
+      // host reboot) - nothing will ever close that run's row on its own
+      // since the process that would have logged RUN-END is gone. Close it
+      // out now instead of leaving it stuck 'running' until the roster/echo
+      // backstop in apply() eventually notices, possibly hours later.
+      //
+      // The SSE stream can independently notice the same disconnect (its own
+      // upstream connection drops) and reconnect faster than our next poll,
+      // already tracking a brand new run by the time we get here. Passing
+      // notStartedAfter tells the store to only touch a run that was already
+      // 'running' as of our last known-good check - never one that could be
+      // that legitimate new run.
+      try {
+        if (
+          store.markInterruptedByBackendRestart(new Date().toISOString(), {
+            notStartedAfter: priorHealthyCheckedAt,
+          })
+        ) {
+          log("warn", "Closed a run stuck 'running' - the backend restarted mid-run.");
+        }
+      } catch (e) {
+        log("warn", `Could not close the interrupted run: ${e.message}`);
+      }
       hub.markUpstreamRestarted();
     }
     lastHealthUptime = health.uptimeSec;
   }
+  lastHealthyCheckedAt = backend.checkedAt;
 
   if (backend.authRequired && !CONTROL_API_TOKEN) {
     backend.authOk = false;
