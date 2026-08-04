@@ -18,6 +18,7 @@ const TOKEN_TO_CSS_VAR = {
   positive: "--positive",
   negative: "--negative",
   energyHighAccent: "--energy-high-accent",
+  energyHighBg: "--energy-high-bg",
 };
 
 export function applyTheme(theme, mode) {

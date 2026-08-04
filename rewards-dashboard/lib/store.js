@@ -345,7 +345,9 @@ class Store {
 
     switch (event.kind) {
       case "account-start": {
-        this._pendingDelay = null;
+        if (!this._pendingDelay || !this._pendingDelay.nextEmail || this._pendingDelay.nextEmail === event.email) {
+          this._pendingDelay = null;
+        }
         this.stmts.upsertAccountStart.run(
           event.email,
           event.userName || null,
@@ -384,7 +386,11 @@ class Store {
         break;
       }
       case "account-delay": {
-        this._pendingDelay = { seconds: event.seconds, sinceTs: event.ts };
+        this._pendingDelay = {
+          seconds: event.seconds,
+          sinceTs: event.ts,
+          nextEmail: event.nextEmail || null,
+        };
         this._pushActivity(event);
         break;
       }

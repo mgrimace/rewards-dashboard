@@ -21,7 +21,7 @@ const RUN_END_RE =
 // one at a time now rather than together, so this wait can be a large
 // fraction of the run's total time.
 const ACCOUNT_DELAY_RE =
-  /^Waiting\s([\d.]+)\sseconds before starting the next account$/;
+  /^Waiting\s([\d.]+)\sseconds before starting the next account(?:\s\((\S+@\S+)\))?$/;
 const STREAK_PROTECTION_RE =
   /^Snapshot complete\s\|\soffers=(\d+)\s\|\sreportable=(\d+)\s\|\sstreaks=(\d+)\s\|\sstreakProtectionEnabled=(true|false)\s\|\sstreakProtectionRemainingDays=(\d+|null)\s\|\sstreakCounter=(\d+|null)\s\|\slevel=([^|]+)\s\|\saccount=(\S+@\S+)$/;
 
@@ -156,7 +156,13 @@ function parseLine(rawLine) {
     }
     case "ACCOUNT-DELAY": {
       const am = ACCOUNT_DELAY_RE.exec(message);
-      if (am) return { ...base, kind: "account-delay", seconds: Number(am[1]) };
+      if (am)
+        return {
+          ...base,
+          kind: "account-delay",
+          seconds: Number(am[1]),
+          nextEmail: am[2] || null,
+        };
       break;
     }
     case "REACT-PARSE": {

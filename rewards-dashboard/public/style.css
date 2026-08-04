@@ -527,6 +527,14 @@ main {
   background: var(--amber-bg);
   color: var(--amber);
 }
+.pill-pending {
+  background: var(--energy-high-bg);
+  color: var(--energy-high-accent);
+  /*
+  background: var(--border);
+  color: var(--text-muted);
+  */
+}
 .pill-warn {
   background: var(--amber-bg);
   color: var(--amber);

@@ -191,6 +191,7 @@ const PILLS = {
   running: ["pill-running", "Running"],
   starting: ["pill-running", "Starting"],
   stopping: ["pill-warn", "Stopping"],
+  pending: ["pill-pending", "Pending"],
   idle: ["pill-idle", "Idle"],
 };
 

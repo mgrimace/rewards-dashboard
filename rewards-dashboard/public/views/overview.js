@@ -81,7 +81,11 @@ function pendingDelayLabel(pendingDelay) {
   if (!pendingDelay) return null;
   const elapsedSec = (Date.now() - Date.parse(pendingDelay.sinceTs)) / 1000;
   const remaining = Math.round(pendingDelay.seconds - elapsedSec);
-  return remaining > 0 ? `next account in ~${remaining}s` : null;
+  if (remaining <= 0) return null;
+  const who = pendingDelay.nextEmail
+    ? ` (${pendingDelay.nextEmail.split("@")[0]})`
+    : "";
+  return `next account in ~${remaining}s${who}`;
 }
 
 function controlState() {
@@ -183,6 +187,14 @@ function renderAccountRows(root) {
   const todayKey = U.tzDayKey(new Date());
   const isMobile = window.matchMedia("(max-width: 768px)").matches;
 
+  // While waiting between accounts, mark the account that's up next as
+  // 'pending' rather than plain 'idle'. index.ts's ACCOUNT-DELAY log line
+  // now names the upcoming account directly, so this reads that identity
+  // straight off pendingDelay rather than inferring it from run.accounts
+  // (which only ever contains accounts that have already started).
+  const pendingDelay = context?.status?.pendingDelay;
+  const nextAccountEmail = pendingDelay?.nextEmail || null;
+
   // hide email for screenshots by toggling mask = true
   const MASK_EMAILS = false;
 
@@ -202,7 +214,10 @@ function renderAccountRows(root) {
 
       const todayGained = days?.find((d) => d.dayKey === todayKey)?.gained ?? null;
       const variant = checkVariant(a.status);
-      const badgeStatus = { ok: "success", error: "error", running: "running", idle: "idle" }[variant];
+      let badgeStatus = { ok: "success", error: "error", running: "running", idle: "idle" }[variant];
+      if (badgeStatus !== "running" && nextAccountEmail && a.email === nextAccountEmail) {
+        badgeStatus = "pending";
+      }
 
       const todayText =
         todayGained != null
@@ -335,23 +350,32 @@ function renderRunHeader(root, status) {
 
   const progressWrap = bar.parentElement;
   const total = Number(run?.accountsTotal) || 0;
-  let done = Number(run?.accountsSeen);
+  const runAccounts = Array.isArray(run?.accounts) ? run.accounts : [];
 
-  if (!Number.isFinite(done)) {
-    done = (run?.accounts || []).filter(a => a.success != null).length;
-  }
+  // run.accounts only ever contains accounts that have started (see
+  // logParser.js's ensureAccount) - success stays null until it finishes,
+  // so this is the one reliable way to tell "finished" from "still running"
+  // rather than trusting accountsSeen, which counts starts, not completions.
+  const doneCount = runAccounts.filter((a) => a.success != null).length;
+  const seenCount = Number.isFinite(Number(run?.accountsSeen))
+    ? Number(run.accountsSeen)
+    : runAccounts.length;
+  const runningCount = Math.max(0, seenCount - doneCount);
+  const pendingCount = Math.max(0, total - seenCount);
 
-  done = Math.min(done, total);
+  const done = Math.min(doneCount, total);
   const pct = total > 0 ? Math.round((done / total) * 100) : 0;
 
   titleEl.textContent = active ? "Run in progress" : "Last run";
 
   metaEl.textContent = [
     run?.version ? `v${run.version}` : null,
-    total ? `${done}/${total} accounts done` : `${done} accounts seen`,
+    total ? `${done}/${total} done` : `${seenCount} accounts seen`,
+    total && runningCount ? `${runningCount} running` : null,
+    total && pendingCount ? `${pendingCount} pending` : null,
     run?.clusters != null ? `${run.clusters} cluster${run.clusters === 1 ? "" : "s"}` : null,
     run?.collected != null ? `${U.fmtSigned(run.collected)} points` : null,
-    active ? pendingDelayLabel(status?.pendingDelay) : null,
+    pendingDelayLabel(status?.pendingDelay),
   ]
     .filter(Boolean)
     .join(" \u00b7 ");
