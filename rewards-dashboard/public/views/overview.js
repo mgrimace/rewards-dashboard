@@ -188,10 +188,11 @@ function renderAccountRows(root) {
   const isMobile = window.matchMedia("(max-width: 768px)").matches;
 
   // While waiting between accounts, mark the account that's up next as
-  // 'pending' rather than plain 'idle'. index.ts's ACCOUNT-DELAY log line
-  // now names the upcoming account directly, so this reads that identity
-  // straight off pendingDelay rather than inferring it from run.accounts
-  // (which only ever contains accounts that have already started).
+  // 'pending' rather than plain 'idle'/'success'/'error'. index.ts's
+  // ACCOUNT-DELAY log line names the upcoming account directly, so this
+  // reads that identity straight off pendingDelay rather than inferring it
+  // from run.accounts (which only ever contains accounts that have already
+  // started).
   const pendingDelay = context?.status?.pendingDelay;
   const nextAccountEmail = pendingDelay?.nextEmail || null;
 
@@ -475,5 +476,6 @@ export default {
     if (!mounted || !data) return;
     renderRunHeader(rootEl, status);
     renderStats(rootEl, status);
+    renderAccountRows(rootEl);
   },
 };
