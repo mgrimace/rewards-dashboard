@@ -46,12 +46,16 @@
 
 * {
   box-sizing: border-box;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
 }
 
 html,
 body {
   margin: 0;
   padding: 0;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
 }
 
 [hidden] {
@@ -341,7 +345,6 @@ main {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 8px;
-  /* FLAG: hardcoded color — should reference a token instead of rgba(0, 0, 0, ...) */
   box-shadow: 0 6px 20px rgba(0, 0, 0, 0.14);
   padding: 0.3rem;
   display: flex;
@@ -391,7 +394,6 @@ main {
   background: var(--surface);
   color: var(--text);
   border: 1px solid var(--border);
-  /* FLAG: hardcoded color — should reference a token instead of rgba(0, 0, 0, ...) */
   box-shadow: 0 6px 20px rgba(0, 0, 0, 0.16);
   animation: toast-in 0.18s ease;
 }
@@ -530,10 +532,6 @@ main {
 .pill-pending {
   background: var(--energy-high-bg);
   color: var(--energy-high-accent);
-  /*
-  background: var(--border);
-  color: var(--text-muted);
-  */
 }
 .pill-warn {
   background: var(--amber-bg);
@@ -576,7 +574,7 @@ main {
 .link-btn:hover:not(:disabled) {
   background: var(--accent);
   border-color: var(--accent);
-  color: var(--text-inverse); /* Added this so the text is readable against the --accent background */
+  color: var(--text-inverse);
 }
 
 .link-btn:disabled {
@@ -852,18 +850,15 @@ select.input {
   border-left: 1px solid var(--border);
 }
 
-/* Inactive button hover matches the control menu item hover behavior */
 .seg-btn:hover {
   background: var(--hover);
 }
 
-/* Active button: accent background */
 .seg-btn--active {
   background: var(--accent);
   color: var(--text-inverse);
 }
 
-/* Active button hover: lighter accent hover */
 .seg-btn--active:hover {
   background: var(--accent-hover);
 }
@@ -1023,7 +1018,7 @@ tbody tr:hover {
   text-align: center;
 }
 
-/* Expandable accordion list item (used by Runs' Process exits + Diagnostics' Error captures) */
+/* Expandable accordion list item */
 .exit-list,
 .diag-list {
   list-style: none;
@@ -1132,12 +1127,16 @@ tbody tr:hover {
   text-overflow: ellipsis;
   overflow: hidden;
   max-width: 100%;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
 }
 
 .stat-value-sm {
   font-size: 1rem; 
   font-weight: 700;
   line-height: 1.2;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
 }
 
 .stat-num-val.stat-value-sm,
@@ -1258,7 +1257,24 @@ tbody tr:hover {
   font-variant-numeric: tabular-nums;
 }
 
-/* Daily point accumulation heatmap */
+.run-progress-meta-track-wrap {
+  display: inline-block;
+  white-space: nowrap;
+}
+
+.run-progress-meta-track {
+  display: inline-block;
+  white-space: nowrap;
+}
+
+@keyframes run-progress-ticker {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
 
 /* Timeline view */
 .accum-track {
@@ -1374,11 +1390,10 @@ tbody tr:hover {
   right: -8px;
 }
 
-/* heatmap view */
-
+/* Heatmap view */
 .heatmap-wrap {
     display: flex;
-    justify-content: flex-start; /* Changed from center to anchor past squares */
+    justify-content: flex-start;
     align-items: center;
     height: 100%;
 }
@@ -1386,14 +1401,14 @@ tbody tr:hover {
 .heatmap {
     display: flex;
     gap: 2px;
-    flex-shrink: 0; /* Prevents the entire heatmap from squishing */
+    flex-shrink: 0;
 }
 
 .heatmap-week {
     display: flex;
     flex-direction: column;
     gap: 2px;
-    flex-shrink: 0; /* Prevents the columns from squishing */
+    flex-shrink: 0;
 }
 
 .heatmap-cell {
@@ -1469,7 +1484,6 @@ tbody tr:hover {
 
 .hero-row {
   display: grid;
-/*  grid-template-columns: 1fr 1fr; */ /*even 50:50 split with infographic */
   grid-template-columns: minmax(0, 1fr) 486px;
   border-bottom: 1px solid var(--border);
 }
@@ -2131,8 +2145,6 @@ tbody tr:hover {
       gap: 8px;
       flex-grow: 1;
     }
-  /* The topbar wraps to two rows on mobile, so the tab bar can't stick
-       under a fixed offset — let it scroll away instead of overlapping. */
   .tabbar {
       position: static;
     }
@@ -2218,6 +2230,28 @@ tbody tr:hover {
   }
 }
 
+/* Run progress bar (mobile) */
+@media (max-width: 768px) {
+  .run-progress-meta {
+    display: block;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    position: relative;
+    font-size: 0.78rem;
+  }
+
+  .run-progress-meta.is-ticker {
+    text-overflow: clip;
+    mask-image: linear-gradient(to right, transparent, black 14px, black calc(100% - 14px), transparent);
+    -webkit-mask-image: linear-gradient(to right, transparent, black 14px, black calc(100% - 14px), transparent);
+  }
+
+  .run-progress-meta.is-ticker .run-progress-meta-track-wrap {
+    animation: run-progress-ticker var(--ticker-duration, 14s) linear infinite;
+  }
+}
+
 /* Hero panel, stat cards, accumulation bars, run rows (mobile) */
 @media (max-width: 768px) {
   .hero-panel-header {
@@ -2255,23 +2289,26 @@ tbody tr:hover {
       justify-content: flex-end;
       text-align: right;
     }
-  .stat-num-val {
-      font-size: 1.05rem;
+  .stat-num-val,
+  .stat-value-sm,
+  .stat-num-val.stat-value-sm {
+      font-size: 0.78rem !important;
       font-weight: 700;
-    }
-  .stat-value-sm {
-      font-size: 0.92rem;
-      white-space: normal;
-      overflow: visible;
-      text-overflow: clip;
+      white-space: normal !important;
+      overflow: visible !important;
+      text-overflow: clip !important;
       word-break: keep-all;
+      -webkit-text-size-adjust: 100%;
+      text-size-adjust: 100%;
     }
   .stat-block-unit {
       display: none;
     }
   .stat-label {
-      font-size: 0.78rem;
+      font-size: 0.78rem !important;
       word-break: keep-all;
+      -webkit-text-size-adjust: 100%;
+      text-size-adjust: 100%;
     }
 
   .hero-row {
