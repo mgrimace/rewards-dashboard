@@ -171,6 +171,98 @@ export function toast(message, kind = "info", ms = 4000) {
   }, ms);
 }
 
+// ticker
+
+// Renders `text` into `container` as plain content by default. On mobile
+// (or always, if mobileOnly is false), if the content actually overflows
+// the element's width, it's promoted to a scrolling ticker instead of
+// being clipped or wrapped - otherwise it stays a normal static line.
+// Shared by any component that needs this (run-progress meta, the
+// control-strip detail line, etc.) rather than each one reimplementing it.
+//
+// Callers may invoke this very frequently (once per SSE state push, easily
+// several times a second during an active run), so this updates text in
+// place and only touches the ticker/animation state when the overflow
+// status actually changes - rebuilding the DOM (and restarting the CSS
+// animation) on every call would mean a multi-second scroll animation
+// never gets the uninterrupted time it needs to complete a single loop.
+// Activating vs deactivating also uses different thresholds (hysteresis):
+// a line sitting right at the fits/doesn't-fit boundary would otherwise
+// flip in and out of ticker mode on consecutive renders, resetting the
+// animation each time and looking like it never moves at all.
+//
+// The track is duplicated (each copy carrying a trailing `separator` once
+// ticking, so the loop doesn't run text directly into itself) and the pair
+// (the wrap) animated from 0 to -50% of its own combined width - i.e.
+// exactly one copy's width - so the loop hands off seamlessly: no blank
+// lead-in, no snap-back partway through.
+export function renderTicker(
+  container,
+  text,
+  { mobileOnly = true, separator = "\u00a0\u00a0\u2022\u00a0\u00a0" } = {},
+) {
+  text = text ?? "";
+
+  let wrap = container.querySelector(":scope > .ticker-track-wrap");
+  let track;
+  let clone;
+
+  if (wrap) {
+    track = wrap.querySelector(".ticker-track:not([aria-hidden])");
+    clone = wrap.querySelector(".ticker-track[aria-hidden]");
+  } else {
+    container.classList.add("ticker");
+    container.innerHTML = "";
+    wrap = el("span", { class: "ticker-track-wrap" });
+    track = el("span", { class: "ticker-track" });
+    wrap.appendChild(track);
+    container.appendChild(wrap);
+  }
+
+  const wasTicker = container.classList.contains("is-ticker");
+  const displayText = wasTicker ? text + separator : text;
+  if (track.textContent !== displayText) {
+    track.textContent = displayText;
+    if (clone) clone.textContent = displayText;
+  }
+
+  const isMobile = !mobileOnly || window.matchMedia("(max-width: 768px)").matches;
+
+  if (!text || !isMobile) {
+    if (wasTicker) {
+      container.classList.remove("is-ticker");
+      container.style.removeProperty("--ticker-duration");
+      clone?.remove();
+      track.textContent = text;
+    }
+    return;
+  }
+
+  // Needs the mobile CSS's overflow:hidden/white-space:nowrap already in
+  // effect on `container` to measure correctly.
+  const overflowing = track.scrollWidth > container.clientWidth + 1;
+  const clearlyFits = track.scrollWidth <= container.clientWidth - 6;
+
+  if (overflowing && !wasTicker) {
+    container.classList.add("is-ticker");
+    track.textContent = text + separator;
+    clone = track.cloneNode(true);
+    clone.setAttribute("aria-hidden", "true");
+    wrap.appendChild(clone);
+    // ~40px/sec, clamped so very short overflow doesn't whip by and very
+    // long lines don't take forever to loop.
+    const seconds = Math.min(30, Math.max(8, Math.round(track.scrollWidth / 40)));
+    container.style.setProperty("--ticker-duration", `${seconds}s`);
+  } else if (clearlyFits && wasTicker) {
+    container.classList.remove("is-ticker");
+    container.style.removeProperty("--ticker-duration");
+    clone?.remove();
+    track.textContent = text;
+  }
+  // Otherwise the overflow status is unchanged - leave the animation
+  // running uninterrupted even though the text may have just been updated.
+}
+
 // other
 
 export function debounce(fn, ms = 250) {

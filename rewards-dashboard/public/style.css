@@ -54,6 +54,7 @@ html,
 body {
   margin: 0;
   padding: 0;
+  overflow-x: hidden;
   -webkit-text-size-adjust: 100%;
   text-size-adjust: 100%;
 }
@@ -315,6 +316,11 @@ main {
   align-items: center;
   gap: 0.6rem;
   min-width: 0;
+  width: 100%;
+}
+
+#ctlPill {
+  flex-shrink: 0;
 }
 
 .ctl-detail {
@@ -324,6 +330,8 @@ main {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  min-width: 0;
+  flex: 1 1 0%;
 }
 
 .ctl-actions {
@@ -1070,6 +1078,30 @@ tbody tr:hover {
   font-size: 0.75rem;
 }
 
+/* Ticker - shared scrolling-text mechanics. Used by any single-line status
+   text that might overflow (run-progress meta, the control-strip detail
+   line, etc.). Carries no typography of its own - the container keeps its
+   own font-size/color/weight and just gets this class added alongside it.
+   Mobile-only activation and the actual animation trigger live in
+   6. RESPONSIVE, since the ticker only ever engages on narrow screens. */
+.ticker-track-wrap {
+  display: inline-block;
+  white-space: nowrap;
+}
+
+.ticker-track {
+  display: inline-block;
+  white-space: nowrap;
+}
+
+@keyframes ticker-scroll {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
 
 /* ===========================================================================
    5. PAGE-SPECIFIC SECTIONS
@@ -1255,25 +1287,7 @@ tbody tr:hover {
   color: var(--text-muted);
   font-weight: 600;
   font-variant-numeric: tabular-nums;
-}
-
-.run-progress-meta-track-wrap {
-  display: inline-block;
-  white-space: nowrap;
-}
-
-.run-progress-meta-track {
-  display: inline-block;
-  white-space: nowrap;
-}
-
-@keyframes run-progress-ticker {
-  from {
-    transform: translateX(0);
-  }
-  to {
-    transform: translateX(-50%);
-  }
+  min-width: 0;
 }
 
 /* Timeline view */
@@ -2163,13 +2177,21 @@ tbody tr:hover {
       gap: 0.6rem;
     }
   .ctl-actions {
-      flex-wrap: wrap;
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr)) 38px;
+      gap: 0.4rem;
+      width: 100%;
     }
   .ctl-actions .btn {
-      flex: 1 1 auto;
+      min-width: 0;
+      padding: 0 0.5rem;
+      font-size: 0.8rem;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
   .ctl-actions .btn-icon {
-      flex: 0 0 34px;
+      width: 100%;
+      padding: 0;
     }
 
   main {
@@ -2230,25 +2252,34 @@ tbody tr:hover {
   }
 }
 
-/* Run progress bar (mobile) */
+/* Ticker activation (mobile only) - shared by any element carrying the
+   .ticker class (added via util.js's renderTicker). Static single-line
+   ellipsis by default; only promoted to the masked scrolling animation
+   once JS flags actual overflow via .is-ticker. */
 @media (max-width: 768px) {
-  .run-progress-meta {
+  .ticker {
     display: block;
     overflow: hidden;
     white-space: nowrap;
     text-overflow: ellipsis;
     position: relative;
-    font-size: 0.78rem;
   }
 
-  .run-progress-meta.is-ticker {
+  .ticker.is-ticker {
     text-overflow: clip;
     mask-image: linear-gradient(to right, transparent, black 14px, black calc(100% - 14px), transparent);
     -webkit-mask-image: linear-gradient(to right, transparent, black 14px, black calc(100% - 14px), transparent);
   }
 
-  .run-progress-meta.is-ticker .run-progress-meta-track-wrap {
-    animation: run-progress-ticker var(--ticker-duration, 14s) linear infinite;
+  .ticker.is-ticker .ticker-track-wrap {
+    animation: ticker-scroll var(--ticker-duration, 14s) linear infinite;
+  }
+}
+
+/* Run progress bar (mobile) */
+@media (max-width: 768px) {
+  .run-progress-meta {
+    font-size: 0.78rem;
   }
 }
 

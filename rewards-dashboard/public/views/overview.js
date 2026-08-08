@@ -88,46 +88,6 @@ function pendingDelayLabel(pendingDelay) {
   return `next account in ~${remaining}s${who}`;
 }
 
-// Renders the run-progress meta line as plain text everywhere by default.
-// On mobile, if the line is actually too long to fit on one row, it's
-// promoted to a scrolling ticker instead of wrapping or getting clipped -
-// otherwise it stays a normal, static line. The track is duplicated and
-// animated from 0 to -50% of the pair's combined width so the scroll loops
-// seamlessly with no blank lead-in: the text is already flush against the
-// start on frame one.
-function renderRunMeta(metaEl, text) {
-  metaEl.classList.remove("is-ticker");
-  metaEl.style.removeProperty("--ticker-duration");
-  metaEl.innerHTML = "";
-
-  const wrap = document.createElement("span");
-  wrap.className = "run-progress-meta-track-wrap";
-  const track = document.createElement("span");
-  track.className = "run-progress-meta-track";
-  track.textContent = text;
-  wrap.appendChild(track);
-  metaEl.appendChild(wrap);
-
-  const isMobile = window.matchMedia("(max-width: 768px)").matches;
-  if (!isMobile || !text) return;
-
-  // Needs the mobile CSS's overflow:hidden/white-space:nowrap already in
-  // effect to measure correctly, which it is - this only runs on mobile.
-  const overflowing = track.scrollWidth > metaEl.clientWidth + 1;
-  if (!overflowing) return;
-
-  metaEl.classList.add("is-ticker");
-  const clone = track.cloneNode(true);
-  clone.setAttribute("aria-hidden", "true");
-  wrap.appendChild(clone);
-
-  // The animated element is the wrap (both copies combined), so -50% of
-  // its own width is exactly one copy's width - the wrap's own scrollWidth
-  // reflects the doubled content once the clone is attached.
-  const seconds = Math.min(30, Math.max(8, Math.round(track.scrollWidth / 40)));
-  metaEl.style.setProperty("--ticker-duration", `${seconds}s`);
-}
-
 function controlState() {
   const status = context?.status;
   const usable = Boolean(status?.reachable && status?.authOk !== false);
@@ -409,7 +369,7 @@ function renderRunHeader(root, status) {
 
   titleEl.textContent = active ? "Run in progress" : "Last run";
 
-  renderRunMeta(
+  U.renderTicker(
     metaEl,
     [
       run?.version ? `v${run.version}` : null,

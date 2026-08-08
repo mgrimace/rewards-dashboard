@@ -344,8 +344,10 @@ function renderControlStrip() {
       `last exit: code ${bot.lastExit.code ?? "n/a"}${bot.lastExit.signal ? ` / ${bot.lastExit.signal}` : ""}`,
     );
   }
-  els.ctlDetail.textContent =
-    bits.join(" \u00b7 ") || (usable ? "Ready" : "Control API unavailable");
+  U.renderTicker(
+    els.ctlDetail,
+    bits.join(" \u00b7 ") || (usable ? "Ready" : "Control API unavailable"),
+  );
 
   els.btnStart.disabled = !usable || running;
   els.btnStop.disabled = !usable || !running;
@@ -476,5 +478,8 @@ setInterval(renderCodes, 1000);
 window.addEventListener("focus", () => refreshActive(true));
 window.addEventListener(
   "resize",
-  U.debounce(() => redrawActive(), 200),
+  U.debounce(() => {
+    redrawActive();
+    renderControlStrip();
+  }, 200),
 );
