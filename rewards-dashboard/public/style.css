@@ -2441,6 +2441,17 @@ tbody tr:hover {
   .log-tag {
       display: none;
     }
+  .log-date {
+      display: none;
+    }
+  .log-line {
+      flex-wrap: wrap;
+      row-gap: 0.15rem;
+    }
+  .log-msg {
+      flex-basis: 100%;
+      width: 100%;
+    }
 }
 
 

@@ -26,9 +26,12 @@ const matches = (e) => {
 
 function lineHtml(e) {
   const time = e.ts || (e.receivedAt ? U.fmtTime(e.receivedAt) : "");
+  const commaIdx = time.indexOf(", ");
+  const datePart = commaIdx === -1 ? "" : time.slice(0, commaIdx);
+  const timePart = commaIdx === -1 ? time : time.slice(commaIdx + 2);
   const tag = e.title || e.level;
   return `<div class="log-line log-line--${U.escapeAttr(e.level)}">
-        <span class="log-time">${U.escapeHtml(time)}</span>
+        <span class="log-time">${datePart ? `<span class="log-date">${U.escapeHtml(datePart)}, </span>` : ""}${U.escapeHtml(timePart)}</span>
         <span class="log-level log-level--${U.escapeAttr(e.level)}">${U.escapeHtml(e.level)}</span>
         <span class="log-tag">${U.escapeHtml(tag || "")}</span>
         <span class="log-msg">${U.escapeHtml(e.message || e.raw || "")}</span>
