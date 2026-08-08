@@ -136,9 +136,19 @@ function detailGroups(a, protection) {
       ["Success streak", `${a.successStreak} run${a.successStreak === 1 ? "" : "s"}`],
       ...(protection
         ? [
-          ["Current streak", protection.streak],
+          [
+            "Current streak",
+            a.streakCounter == null
+              ? "Unavailable"
+              : `${U.fmtNumber(a.streakCounter)} day${a.streakCounter === 1 ? "" : "s"}`,
+          ],
           ["Streak protection", protection.state === "On" ? "Enabled" : "Disabled"],
-          ["Protection days remaining", protection.days],
+          [
+            "Protection days remaining",
+            a.streakProtectionRemainingDays == null
+              ? "Unavailable"
+              : `${a.streakProtectionRemainingDays} day${a.streakProtectionRemainingDays === 1 ? "" : "s"}`,
+          ],
           ...(a.streakProtectionUpdatedAt
             ? [["Protection status checked", U.fmtRelative(a.streakProtectionUpdatedAt)]]
             : []),
@@ -157,7 +167,7 @@ function detailGroups(a, protection) {
     ],
   ]);
 
-  return groups
+  return `<div class="acc-detail-groups">${groups
     .map(
       ([title, items]) => `
         <div class="acc-detail-group">
@@ -165,7 +175,31 @@ function detailGroups(a, protection) {
             ${kv(items)}
         </div>`,
     )
-    .join("");
+    .join("")}</div>`;
+}
+
+// Mirrors overview.js's statCard icon convention (stat-icon-check /
+// -running / -alert icon-alert-active / -idle with \u2713 / \u25CF / ! / \u2013)
+// so an account's live status reads the same way here as it does there.
+function statusIconParts(statusKey) {
+  switch (statusKey) {
+    case "success":
+    case "done":
+      return { cls: "stat-icon-check", icon: "\u2713", label: "Success" };
+    case "running":
+    case "starting":
+    case "stopping":
+      return { cls: "stat-icon-running", icon: "\u25CF", label: U.pillParts(statusKey).label };
+    case "pending":
+      return { cls: "stat-icon-pending", icon: "\u25CF", label: U.pillParts(statusKey).label };
+    case "error":
+    case "crashed":
+    case "interrupted":
+    case "stopped":
+      return { cls: "stat-icon-alert icon-alert-active", icon: "!", label: U.pillParts(statusKey).label };
+    default:
+      return { cls: "stat-icon-idle", icon: "\u2013", label: "Idle" };
+  }
 }
 
 function renderAccountPanel(a, live) {
@@ -178,13 +212,23 @@ function renderAccountPanel(a, live) {
   // a.status is this account's own last-observed outcome (idle/running/
   // success/error), so it correctly tells finished accounts apart from the
   // one actually in progress right now.
-  const statusKey = launching.has(a.index) ? "starting" : a.status;
+  // Mirrors overview.js: while waiting between accounts, the one named by
+  // pendingDelay.nextEmail is up next, so it reads as "pending" rather than
+  // whatever its last-observed status happened to be.
+  const nextAccountEmail = context?.status?.pendingDelay?.nextEmail || null;
+  const statusKey = launching.has(a.index)
+    ? "starting"
+    : a.status !== "running" && nextAccountEmail && a.email === nextAccountEmail
+      ? "pending"
+      : a.status;
 
   const runButton =
     a.configured && Number.isInteger(a.index)
       ? `<button type="button" class="btn btn-primary btn-small" data-run-account="${a.index}" ${!usable || running || launching.has(a.index) ? "disabled" : ""
       } title="Run only ACCOUNT_${a.index}">${launching.has(a.index) ? "Starting\u2026" : "Run only"}</button>`
       : "";
+
+  const { cls: statusIconCls, icon: statusIcon, label: statusLabel } = statusIconParts(statusKey);
 
   const chips = [
     protection
@@ -199,11 +243,11 @@ function renderAccountPanel(a, live) {
   return `
     <div class="panel account-detail-panel">
         <div class="panel-head">
-            <h2>${U.escapeHtml(a.email)}</h2>
-            ${a.index != null ? `<span class="tag-mini">ACCOUNT_${a.index}</span>` : ""}
+            <h2><span class="acc-status-icon ${statusIconCls}" role="img" aria-label="${U.escapeAttr(statusLabel)}" title="${U.escapeAttr(statusLabel)}">${statusIcon}</span>${U.escapeHtml(a.email)}</h2>
+            ${a.index != null ? `<span class="tag-mini acc-tag-account-id">ACCOUNT_${a.index}</span>` : ""}
             ${a.configured ? "" : '<span class="tag-mini">unconfigured</span>'}
             <span class="acc-detail-actions">
-                ${U.statusPill(statusKey)}
+                <span class="acc-status-pill">${U.statusPill(statusKey)}</span>
                 ${runButton}
             </span>
         </div>
