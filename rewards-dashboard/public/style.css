@@ -1754,8 +1754,9 @@ tbody tr:hover {
 
 .log-line {
   display: flex;
+  align-items: flex-start;
   gap: 0.7rem;
-  padding: 0.1rem 0.75rem;
+  padding: 0.25rem 0.75rem;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
@@ -1774,6 +1775,7 @@ tbody tr:hover {
   flex-shrink: 0;
   opacity: 0.75;
   white-space: nowrap;
+  padding-top: 0.1rem;
 }
 
 .log-level {
@@ -1782,7 +1784,7 @@ tbody tr:hover {
   font-weight: 700;
   text-transform: uppercase;
   font-size: 0.68rem;
-  align-self: center;
+  padding-top: 0.1rem;
 }
 .log-level--info {
   color: var(--text-muted);
@@ -1800,10 +1802,13 @@ tbody tr:hover {
 
 .log-tag {
   flex-shrink: 0;
-  min-width: 8rem;
+  width: 11rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
   color: var(--accent);
   font-weight: 600;
   white-space: nowrap;
+  padding-top: 0.1rem;
 }
 
 .log-msg {
@@ -2424,7 +2429,7 @@ tbody tr:hover {
       font-size: 0.72rem;
     }
   .log-tag {
-      min-width: 5.5rem;
+      width: 5.5rem;
     }
   .toolbar {
       gap: 0.4rem;
