@@ -11,6 +11,234 @@ let drift = null; // { addedKeys, upToDate } from GET /api/config/diff, or null 
 const isPlainObject = (v) =>
   v !== null && typeof v === "object" && !Array.isArray(v);
 
+// Human-readable name + description for every known boolean config path,
+// grouped for display. Descriptions are copied verbatim from the README's
+// "Configuration Options" tables (same wording, so the two stay in sync).
+// Labels are ours (the README doesn't provide separate display names) - a
+// few README descriptions just restate the setting name (e.g. "Claim bonus
+// points" / "Proxy query engine requests"), so label and description read
+// the same for those; that's expected, not a bug. Anything present in
+// config.json but not listed here at all (e.g. a brand-new option from an
+// update the dashboard hasn't caught up with yet) still renders - just with
+// a name derived from its path and no description - under a trailing
+// "Other settings" group, so the toggle grid never silently drops a real
+// setting.
+const TOGGLE_GROUPS = [
+  {
+    title: "Core",
+    fields: {
+      headless: {
+        label: "Headless browser",
+        desc: "Run browser invisibly",
+      },
+      errorDiagnostics: {
+        label: "Error diagnostics",
+        desc: "Save error and unknown-login page diagnostics under diagnostics/",
+      },
+      ensureStreakProtection: {
+        label: "Ensure streak protection",
+        desc: "Ensure streak protection is enabled",
+      },
+      autoClaimPunchcardRewards: {
+        label: "Auto-claim punchcard rewards",
+        desc: "Auto-claim completed punchcard rewards",
+      },
+      skipNonPointTasks: {
+        label: "Skip non-point tasks",
+        desc: "Skip tasks that award no points",
+      },
+      searchOnBingLocalQueries: {
+        label: "Local queries for ExploreOnBing",
+        desc: "Use the local query list for ExploreOnBing",
+      },
+    },
+  },
+  {
+    title: "Workers",
+    fields: {
+      "workers.doDailySet": {
+        label: "Daily set",
+        desc: "Complete daily set",
+      },
+      "workers.doClaimBonusPoints": {
+        label: "Claim bonus points",
+        desc: "Claim bonus points",
+      },
+      "workers.doMorePromotions": {
+        label: "More activities",
+        desc: 'Complete "more activities"',
+      },
+      "workers.doPunchCards": {
+        label: "Punch cards",
+        desc: "Complete punchcards",
+      },
+      "workers.doAppPromotions": {
+        label: "App promotions",
+        desc: "Complete app promotions",
+      },
+      "workers.doDesktopSearch": {
+        label: "Desktop search",
+        desc: "Perform desktop searches",
+      },
+      "workers.doMobileSearch": {
+        label: "Mobile search",
+        desc: "Perform mobile searches",
+      },
+      "workers.doBonusSearches": {
+        label: "Bonus searches",
+        desc: "Farm bonus searches beyond the cap",
+      },
+      "workers.doDailyCheckIn": {
+        label: "Daily check-in",
+        desc: "Complete daily check-in",
+      },
+      "workers.doReadToEarn": {
+        label: "Read to earn",
+        desc: "Complete Read-to-Earn",
+      },
+      "workers.doActivateSearchPerk": {
+        label: "Activate search perk",
+        desc: 'Activate the "search Nx more" perk when present (runs after the daily set)',
+      },
+      "workers.doVisualSearch": {
+        label: "Visual search",
+        desc: "Activate the visual-search streak and perform visual searches",
+      },
+    },
+  },
+  {
+    title: "Activities",
+    fields: {
+      "activities.urlReward": {
+        label: "URL reward",
+        desc: "Complete URL reward activities",
+      },
+      "activities.searchOnBing": {
+        label: "ExploreOnBing",
+        desc: "Complete ExploreOnBing offers",
+      },
+    },
+  },
+  {
+    title: "Search settings",
+    fields: {
+      "searchSettings.scrollRandomResults": {
+        label: "Scroll random results",
+        desc: "Scroll randomly on results",
+      },
+      "searchSettings.clickRandomResults": {
+        label: "Click random results",
+        desc: "Click random links",
+      },
+      "searchSettings.runOnZeroPoints": {
+        label: "Run on zero points",
+        desc: "Run searches even when no search points remain",
+      },
+      "searchSettings.parallelSearching": {
+        label: "Parallel searching",
+        desc: "Run searches in parallel",
+      },
+      "searchSettings.clusterSearch": {
+        label: "Cluster search",
+        desc: "Cluster each main topic with Bing suggestions",
+      },
+    },
+  },
+  {
+    title: "Experimental",
+    fields: {
+      "experimental.apiSearch": {
+        label: "API search",
+        desc: "Perform Bing searches over HTTP instead of driving a browser page",
+      },
+      "experimental.apiSearchOnBing": {
+        label: "API ExploreOnBing",
+        desc: "Complete ExploreOnBing offers over HTTP instead of the browser",
+      },
+      "experimental.blockMedia": {
+        label: "Block media",
+        desc: "Block browser image and media requests to reduce traffic",
+      },
+      "experimental.edgeBrowsing": {
+        label: "Edge browsing",
+        desc: "Report the 30-minute Edge browsing activity as a background HTTP task",
+      },
+    },
+  },
+  {
+    title: "Logging",
+    fields: {
+      debugLogs: {
+        label: "Debug logs",
+        desc: "Enable debug logging",
+      },
+      "consoleLogFilter.enabled": {
+        label: "Console log filter",
+        desc: "Enable console log filtering",
+      },
+    },
+  },
+  {
+    title: "Proxy",
+    fields: {
+      "proxy.queryEngine": {
+        label: "Proxy query engine requests",
+        desc: "Proxy query engine requests",
+      },
+      "proxy.ignoreCertificateErrors": {
+        label: "Ignore certificate errors",
+        desc: "Disable browser TLS certificate verification for intercept proxies",
+      },
+    },
+  },
+  {
+    title: "Webhooks",
+    fields: {
+      "webhook.discord.enabled": {
+        label: "Discord webhook",
+        desc: "Enable Discord webhook",
+      },
+      "webhook.telegram.enabled": {
+        label: "Telegram webhook",
+        desc: "Enable Telegram webhook",
+      },
+      "webhook.ntfy.enabled": {
+        label: "ntfy webhook",
+        desc: "Enable ntfy notifications",
+      },
+      "webhook.webhookLogFilter.enabled": {
+        label: "Webhook log filter",
+        desc: "Enable webhook log filtering",
+      },
+    },
+  },
+];
+
+const TOGGLE_META = {};
+for (const group of TOGGLE_GROUPS) {
+  for (const [path, meta] of Object.entries(group.fields)) {
+    TOGGLE_META[path] = { ...meta, group: group.title };
+  }
+}
+const OTHER_GROUP_TITLE = "Other settings";
+const TOGGLE_GROUP_ORDER = [
+  ...TOGGLE_GROUPS.map((g) => g.title),
+  OTHER_GROUP_TITLE,
+];
+
+// Fallback for a boolean path with no entry above: "workers.doFooBar" ->
+// "Foo bar". Keeps an unrecognized-but-real setting visible and readable
+// rather than dropping it or showing the raw dotted path.
+function fallbackLabel(path) {
+  const last = path.split(".").pop();
+  const spaced = last
+    .replace(/^do/, "")
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .trim();
+  if (!spaced) return last;
+  return spaced.charAt(0).toUpperCase() + spaced.slice(1).toLowerCase();
+}
+
 function deepDiff(base, next) {
   const out = {};
   for (const [k, v] of Object.entries(next)) {
@@ -61,6 +289,20 @@ function showNotice(id, message, kind = "warn") {
   el.innerHTML = message || "";
 }
 
+function switchHtml(b) {
+  const meta = TOGGLE_META[b.path];
+  const label = meta?.label || fallbackLabel(b.path);
+  const desc = meta?.desc || "";
+  return `
+        <label class="switch" title="${U.escapeAttr(b.path)}">
+            <input type="checkbox" data-path="${U.escapeAttr(b.path)}" ${b.value ? "checked" : ""}>
+            <span class="switch-text">
+                <span class="switch-label">${U.escapeHtml(label)}</span>
+                ${desc ? `<span class="switch-desc">${U.escapeHtml(desc)}</span>` : ""}
+            </span>
+        </label>`;
+}
+
 function renderToggles() {
   const host = U.$("#cfgToggles", rootEl);
   const bools = booleanPaths(loaded);
@@ -69,13 +311,25 @@ function renderToggles() {
       '<p class="empty-note">No boolean settings in this config.</p>';
     return;
   }
-  host.innerHTML = bools
+
+  // Group in TOGGLE_GROUP_ORDER order; anything unrecognized falls into a
+  // trailing "Other" group rather than being dropped.
+  const byGroup = new Map();
+  for (const b of bools) {
+    const groupTitle = TOGGLE_META[b.path]?.group || OTHER_GROUP_TITLE;
+    if (!byGroup.has(groupTitle)) byGroup.set(groupTitle, []);
+    byGroup.get(groupTitle).push(b);
+  }
+
+  host.innerHTML = TOGGLE_GROUP_ORDER.filter((title) => byGroup.has(title))
     .map(
-      (b) => `
-        <label class="switch">
-            <input type="checkbox" data-path="${U.escapeAttr(b.path)}" ${b.value ? "checked" : ""}>
-            <span class="switch-label"><code>${U.escapeHtml(b.path)}</code></span>
-        </label>`,
+      (title) => `
+        <div class="acc-detail-group">
+            <h3 class="acc-detail-group-title">${U.escapeHtml(title)}</h3>
+            <div class="switch-grid">
+                ${byGroup.get(title).map(switchHtml).join("")}
+            </div>
+        </div>`,
     )
     .join("");
 
@@ -193,7 +447,6 @@ async function loadConfig(reveal) {
 }
 
 function paint() {
-  U.$("#cfgPath", rootEl).textContent = meta.path || "\u2013";
   U.$("#cfgRedacted", rootEl).hidden = !meta.redacted;
   U.$("#cfgEditor", rootEl).value = JSON.stringify(loaded, null, 2);
   renderToggles();
@@ -214,9 +467,9 @@ export default {
             <section class="panel" aria-labelledby="cfg-toggle-heading">
                 <div class="panel-head">
                     <h2 id="cfg-toggle-heading">Quick toggles</h2>
-                    <span class="panel-sub">Every boolean in <code id="cfgPath">config.json</code>. Changes apply on the next run.</span>
+                    <span class="panel-sub">Changes apply on the next run.</span>
                 </div>
-                <div class="switch-grid" id="cfgToggles"></div>
+                <div class="cfg-toggle-groups" id="cfgToggles"></div>
             </section>
 
             <section class="panel" aria-labelledby="cfg-raw-heading">

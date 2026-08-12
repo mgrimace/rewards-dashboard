@@ -1954,6 +1954,18 @@ tbody tr:hover {
 
 /* Config */
 
+.cfg-toggle-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+/* Reuses accounts.js's .acc-detail-group card + .acc-detail-group-title
+   (energy-high accent) as-is, so a config group has the exact same padding,
+   radius, and title styling as an account detail group. The .cfg-toggle-groups
+   wrapper (not .acc-detail-groups, which is a side-by-side grid) just stacks
+   them vertically with a gap, since config groups are full-width sections. */
+
 .switch-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
@@ -1962,12 +1974,12 @@ tbody tr:hover {
 
 .switch {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 0.55rem;
   padding: 0.55rem 0.7rem;
   border: 1px solid var(--border);
   border-radius: 8px;
-  background: var(--surface-alt);
+  background: var(--surface);
   cursor: pointer;
   font-size: 0.83rem;
 }
@@ -1980,16 +1992,32 @@ tbody tr:hover {
   height: 16px;
   cursor: pointer;
   flex-shrink: 0;
+  margin-top: 0.15rem;
+}
+.switch-text {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 0;
 }
 .switch-label {
   min-width: 0;
   overflow-wrap: anywhere;
+  font-weight: 600;
 }
 .switch-label code {
   background: none;
   border: none;
   padding: 0;
   color: var(--text);
+}
+.switch-desc {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: 0.74rem;
+  font-weight: 400;
+  line-height: 1.35;
+  color: var(--text-muted);
 }
 
 .editor {
