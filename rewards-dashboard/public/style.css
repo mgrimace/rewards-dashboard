@@ -1974,7 +1974,7 @@ tbody tr:hover {
 
 .switch {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: 0.55rem;
   padding: 0.55rem 0.7rem;
   border: 1px solid var(--border);
@@ -1992,32 +1992,110 @@ tbody tr:hover {
   height: 16px;
   cursor: pointer;
   flex-shrink: 0;
-  margin-top: 0.15rem;
-}
-.switch-text {
-  display: flex;
-  flex-direction: column;
-  gap: 0.15rem;
-  min-width: 0;
 }
 .switch-label {
   min-width: 0;
   overflow-wrap: anywhere;
   font-weight: 600;
 }
-.switch-label code {
-  background: none;
-  border: none;
+
+/* Shared by any label whose description moved into its native `title`
+   tooltip (switch labels, detailed-settings field labels) to save vertical
+   space - the dotted underline + help cursor is the only remaining cue
+   that there's more info on hover. align-self: flex-start keeps the
+   underline sized to the word itself rather than stretching full-width,
+   which it otherwise would inside .field's column flex layout. */
+.hint-text {
+  cursor: help;
+  border-bottom: 1px dotted var(--text-muted);
+  align-self: flex-start;
+}
+
+/* Detailed settings (Core/search/logging/webhook text, number, select, and
+   tag-list fields). Reuses the existing .field label-wrapper + .input
+   control classes as-is, same as elsewhere in the dashboard; only the
+   grid/tag-chip/lock pieces below are new. */
+.field-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 0.7rem 0.85rem;
+  align-items: start;
+}
+.field-item {
+  min-width: 0;
+}
+.field-hint {
+  font-size: 0.72rem;
+  font-weight: 400;
+  color: var(--text-muted);
+}
+.field-locked {
+  font-size: 0.72rem;
+  font-weight: 400;
+  color: var(--text-muted);
+}
+.field-item input.input:disabled {
+  color: var(--text-muted);
+  cursor: not-allowed;
+}
+
+/* Tag-list fields (keywords, levels, regex patterns, ntfy tags, query
+   sources) span the full grid row - a chip list plus an add-row needs more
+   width than a single text input. */
+.field-tags {
+  grid-column: 1 / -1;
+}
+.tag-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  min-height: 1.6rem;
+}
+.tag-empty {
+  font-weight: 400;
   padding: 0;
+}
+.tag-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.2rem 0.3rem 0.2rem 0.55rem;
+  border-radius: 999px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  font-size: 0.78rem;
+  font-weight: 400;
   color: var(--text);
 }
-.switch-desc {
-  min-width: 0;
-  overflow-wrap: anywhere;
-  font-size: 0.74rem;
-  font-weight: 400;
-  line-height: 1.35;
+.tag-chip--mono .tag-chip-text {
+  font-family: var(--mono);
+  font-size: 0.76rem;
+}
+.tag-chip-remove {
+  appearance: none;
+  border: none;
+  background: none;
   color: var(--text-muted);
+  cursor: pointer;
+  font-size: 0.9rem;
+  line-height: 1;
+  padding: 0.1rem 0.2rem;
+  border-radius: 999px;
+}
+.tag-chip-remove:hover {
+  color: var(--text);
+  background: var(--hover);
+}
+.tag-add {
+  display: flex;
+  gap: 0.4rem;
+}
+.tag-add-input {
+  flex: 1 1 auto;
+}
+
+.cfg-tip {
+  margin-bottom: 0.6rem;
 }
 
 .editor {

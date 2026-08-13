@@ -239,6 +239,249 @@ function fallbackLabel(path) {
   return spaced.charAt(0).toUpperCase() + spaced.slice(1).toLowerCase();
 }
 
+// Non-boolean settings a human would actually want a real control for
+// (text/number/select/tag-list), grouped the same way as TOGGLE_GROUPS.
+// Unlike the toggles, this list is NOT auto-discovered from config.json -
+// each field needs a specific input type (a duration string isn't the same
+// UI as a webhook URL isn't the same UI as a keyword list), so it's
+// hand-maintained same as the toggle descriptions. Descriptions are again
+// verbatim from the README's "Configuration Options" tables.
+const FIELD_GROUPS = [
+  {
+    title: "Core",
+    fields: {
+      sessionPath: {
+        kind: "text",
+        label: "Session path",
+        desc: "Directory to store browser sessions",
+        placeholder: "sessions",
+      },
+      clusters: {
+        kind: "number",
+        label: "Clusters",
+        desc: "Number of concurrent account clusters",
+        min: 0,
+        step: 1,
+        placeholder: "1",
+      },
+      globalTimeout: {
+        kind: "text",
+        label: "Global timeout",
+        desc: "Timeout for all actions",
+        placeholder: "30sec",
+      },
+      accountDelay: {
+        kind: "delay",
+        label: "Delay before next account",
+        min: {
+          path: "accountDelay.min",
+          desc: "Minimum delay before starting the next configured account",
+          placeholder: "1min",
+        },
+        max: {
+          path: "accountDelay.max",
+          desc: "Maximum delay before starting the next configured account",
+          placeholder: "3min",
+        },
+      },
+    },
+  },
+  {
+    title: "Search settings",
+    fields: {
+      "searchSettings.maxBonusSearches": {
+        kind: "number",
+        label: "Max bonus searches",
+        desc: "Max bonus searches per run (when Bonus searches is on)",
+        min: 0,
+        step: 1,
+        placeholder: "110",
+      },
+      "searchSettings.searchResultVisitTime": {
+        kind: "text",
+        label: "Search result visit time",
+        desc: "Time to spend on each search result",
+        placeholder: "10sec",
+      },
+      "searchSettings.searchDelay": {
+        kind: "delay",
+        label: "Delay between searches",
+        min: {
+          path: "searchSettings.searchDelay.min",
+          desc: "Minimum delay between searches",
+          placeholder: "30sec",
+        },
+        max: {
+          path: "searchSettings.searchDelay.max",
+          desc: "Maximum delay between searches",
+          placeholder: "1min",
+        },
+      },
+      "searchSettings.readDelay": {
+        kind: "delay",
+        label: "Delay for reading",
+        min: {
+          path: "searchSettings.readDelay.min",
+          desc: "Minimum delay for reading",
+          placeholder: "30sec",
+        },
+        max: {
+          path: "searchSettings.readDelay.max",
+          desc: "Maximum delay for reading",
+          placeholder: "1min",
+        },
+      },
+      "searchSettings.queryEngines": {
+        kind: "tags",
+        label: "Query sources",
+        desc: "Sources used to build the search query pool",
+        placeholder: "e.g. google, rss.bbc",
+        hint: "Valid: google, wikipedia, wikirandom, hackernews, reddit, local, or rss.<source> (e.g. rss.bbc, rss.googleNews).",
+      },
+    },
+  },
+  {
+    title: "Logging",
+    fields: {
+      "consoleLogFilter.mode": {
+        kind: "select",
+        label: "Console filter mode",
+        desc: "Filter mode (whitelist/blacklist)",
+        options: [
+          { value: "whitelist", label: "Whitelist" },
+          { value: "blacklist", label: "Blacklist" },
+        ],
+      },
+      "consoleLogFilter.levels": {
+        kind: "tags",
+        label: "Console filter levels",
+        desc: "Log levels to filter",
+        placeholder: "e.g. error, warn",
+        suggestions: ["error", "warn", "info", "debug"],
+      },
+      "consoleLogFilter.keywords": {
+        kind: "tags",
+        label: "Console filter keywords",
+        desc: "Keywords to filter",
+        placeholder: "e.g. starting account",
+      },
+      "consoleLogFilter.regexPatterns": {
+        kind: "tags",
+        label: "Console filter regex patterns",
+        desc: "Regex patterns for filtering",
+        placeholder: "e.g. ^Error:",
+        mono: true,
+      },
+    },
+  },
+  {
+    title: "Webhooks",
+    fields: {
+      "webhook.discord.url": {
+        kind: "text",
+        label: "Discord webhook URL",
+        desc: "Discord webhook URL",
+        placeholder: "https://discord.com/api/webhooks/...",
+      },
+      "webhook.telegram.botToken": {
+        kind: "text",
+        label: "Telegram bot token",
+        desc: "Telegram bot token",
+      },
+      "webhook.telegram.chatId": {
+        kind: "text",
+        label: "Telegram chat ID",
+        desc: "Telegram chat id",
+      },
+      "webhook.ntfy.url": {
+        kind: "text",
+        label: "ntfy server URL",
+        desc: "ntfy server URL",
+        placeholder: "https://ntfy.sh",
+      },
+      "webhook.ntfy.topic": {
+        kind: "text",
+        label: "ntfy topic",
+        desc: "ntfy topic",
+      },
+      "webhook.ntfy.token": {
+        kind: "text",
+        label: "ntfy auth token",
+        desc: "ntfy authentication token",
+      },
+      "webhook.ntfy.title": {
+        kind: "text",
+        label: "ntfy notification title",
+        desc: "Notification title",
+        placeholder: "Microsoft-Rewards-Script",
+      },
+      "webhook.ntfy.tags": {
+        kind: "tags",
+        label: "ntfy tags",
+        desc: "Notification tags",
+        placeholder: "e.g. bot, notify",
+      },
+      "webhook.ntfy.priority": {
+        kind: "select",
+        label: "ntfy priority",
+        desc: "Notification priority (1-5)",
+        numeric: true,
+        options: [
+          { value: "1", label: "1 \u2013 Min" },
+          { value: "2", label: "2 \u2013 Low" },
+          { value: "3", label: "3 \u2013 Default" },
+          { value: "4", label: "4 \u2013 High" },
+          { value: "5", label: "5 \u2013 Max" },
+        ],
+      },
+      "webhook.webhookLogFilter.mode": {
+        kind: "select",
+        label: "Webhook filter mode",
+        desc: "Filter mode (whitelist/blacklist)",
+        options: [
+          { value: "whitelist", label: "Whitelist" },
+          { value: "blacklist", label: "Blacklist" },
+        ],
+      },
+      "webhook.webhookLogFilter.levels": {
+        kind: "tags",
+        label: "Webhook filter levels",
+        desc: "Log levels to send",
+        placeholder: "e.g. error, warn",
+        suggestions: ["error", "warn", "info", "debug"],
+      },
+      "webhook.webhookLogFilter.keywords": {
+        kind: "tags",
+        label: "Webhook filter keywords",
+        desc: "Keywords to filter",
+        placeholder: "e.g. starting account",
+      },
+      "webhook.webhookLogFilter.regexPatterns": {
+        kind: "tags",
+        label: "Webhook filter regex patterns",
+        desc: "Regex patterns for filtering",
+        placeholder: "e.g. ^Error:",
+        mono: true,
+      },
+    },
+  },
+];
+
+// The exact filter the bot's own maintainer uses for push-notification
+// webhooks (ntfy, and equally relevant to Discord/Telegram): without it,
+// every log line - including debug noise - goes out as a notification.
+const RECOMMENDED_WEBHOOK_FILTER = {
+  webhook: {
+    webhookLogFilter: {
+      enabled: true,
+      mode: "whitelist",
+      levels: [],
+      keywords: ["starting account", "select number", "collected"],
+      regexPatterns: [],
+    },
+  },
+};
+
 function deepDiff(base, next) {
   const out = {};
   for (const [k, v] of Object.entries(next)) {
@@ -282,6 +525,41 @@ function setDeep(obj, path, value) {
   node[parts[parts.length - 1]] = value;
 }
 
+function getDeep(obj, path) {
+  let node = obj;
+  for (const key of path.split(".")) {
+    if (node == null) return undefined;
+    node = node[key];
+  }
+  return node;
+}
+
+// Same shape as configEditor.js's server-side deepMerge (objects merge key
+// by key, arrays/scalars replace wholesale) - used to fold a just-saved
+// patch into the in-memory `loaded` config without a full re-fetch. No
+// __proto__ guard here since these patches are always ones we built
+// ourselves from known field paths, never parsed from outside input.
+function localMerge(base, patch) {
+  if (!isPlainObject(patch)) return patch;
+  const out = { ...(isPlainObject(base) ? base : {}) };
+  for (const [k, v] of Object.entries(patch)) {
+    out[k] = isPlainObject(v) ? localMerge(out[k], v) : v;
+  }
+  return out;
+}
+
+// Folds a successful save's patch into `loaded` and refreshes every view
+// that reads from it. Used by the Detailed settings controls (text/select/
+// tag fields, the recommended-filter tip) rather than the toggle switches,
+// which update `loaded` + the editor directly to avoid rebuilding the whole
+// switch grid (and losing keyboard focus) on every single click.
+function afterSave(patch) {
+  loaded = localMerge(loaded, patch);
+  renderToggles();
+  renderFields();
+  U.$("#cfgEditor", rootEl).value = JSON.stringify(loaded, null, 2);
+}
+
 function showNotice(id, message, kind = "warn") {
   const el = U.$(`#${id}`, rootEl);
   el.hidden = !message;
@@ -289,17 +567,22 @@ function showNotice(id, message, kind = "warn") {
   el.innerHTML = message || "";
 }
 
+// Combines a field's description with its raw config path into one native
+// tooltip string (description on the first line, path on the second) so
+// hovering still surfaces both pieces of info now that neither is shown
+// as visible on-page text.
+function fieldTooltip(path, desc) {
+  return desc ? `${desc}\n${path}` : path;
+}
+
 function switchHtml(b) {
   const meta = TOGGLE_META[b.path];
   const label = meta?.label || fallbackLabel(b.path);
   const desc = meta?.desc || "";
   return `
-        <label class="switch" title="${U.escapeAttr(b.path)}">
+        <label class="switch" title="${U.escapeAttr(fieldTooltip(b.path, desc))}">
             <input type="checkbox" data-path="${U.escapeAttr(b.path)}" ${b.value ? "checked" : ""}>
-            <span class="switch-text">
-                <span class="switch-label">${U.escapeHtml(label)}</span>
-                ${desc ? `<span class="switch-desc">${U.escapeHtml(desc)}</span>` : ""}
-            </span>
+            <span class="switch-label hint-text">${U.escapeHtml(label)}</span>
         </label>`;
 }
 
@@ -342,6 +625,7 @@ function renderToggles() {
         await save(nest(path, value), `${path} \u2192 ${value}`);
         setDeep(loaded, path, value);
         U.$("#cfgEditor", rootEl).value = JSON.stringify(loaded, null, 2);
+        renderFields(); // in case the changed toggle affects a Detailed settings field
       } catch {
         input.checked = !value; // roll the switch back; save() already explained why
       } finally {
@@ -349,6 +633,262 @@ function renderToggles() {
       }
     }),
   );
+}
+
+function listId(path) {
+  return `dl-${path.replace(/[^a-zA-Z0-9]/g, "-")}`;
+}
+
+function textFieldHtml(path, def) {
+  const type = def.kind === "number" ? "number" : "text";
+  const raw = getDeep(loaded, path);
+  const locked = typeof raw === "string" && raw === REDACTED;
+  const value = locked ? "" : (raw ?? "");
+  return `
+        <label class="field field-item" title="${U.escapeAttr(fieldTooltip(path, def.desc))}">
+            <span class="hint-text">${U.escapeHtml(def.label)}</span>
+            <input class="input" type="${type}" data-path="${U.escapeAttr(path)}"
+                value="${U.escapeAttr(String(value))}"
+                placeholder="${U.escapeAttr(locked ? "Hidden \u2014 tick \u201cReveal secrets\u201d below to edit" : def.placeholder || "")}"
+                ${locked ? "disabled" : ""}
+                ${def.min != null ? `min="${def.min}"` : ""}
+                ${def.step != null ? `step="${def.step}"` : ""}>
+            ${locked ? '<span class="field-locked">\uD83D\uDD12 Hidden until secrets are revealed</span>' : ""}
+        </label>`;
+}
+
+function selectFieldHtml(path, def) {
+  const raw = getDeep(loaded, path);
+  const current = raw == null ? "" : String(raw);
+  return `
+        <label class="field field-item" title="${U.escapeAttr(fieldTooltip(path, def.desc))}">
+            <span class="hint-text">${U.escapeHtml(def.label)}</span>
+            <select class="input" data-path="${U.escapeAttr(path)}" ${def.numeric ? 'data-numeric="1"' : ""}>
+                ${def.options
+      .map(
+        (o) =>
+          `<option value="${U.escapeAttr(o.value)}" ${String(o.value) === current ? "selected" : ""}>${U.escapeHtml(o.label)}</option>`,
+      )
+      .join("")}
+            </select>
+        </label>`;
+}
+
+function tagsFieldHtml(path, def) {
+  const raw = getDeep(loaded, path);
+  const items = Array.isArray(raw) ? raw : [];
+  const dlId = def.suggestions ? listId(path) : null;
+  return `
+        <div class="field field-item field-tags" title="${U.escapeAttr(fieldTooltip(path, def.desc))}" data-tags-path="${U.escapeAttr(path)}">
+            <span class="hint-text">${U.escapeHtml(def.label)}</span>
+            <div class="tag-chips">
+                ${items
+      .map(
+        (item, i) => `
+                    <span class="tag-chip${def.mono ? " tag-chip--mono" : ""}">
+                        <span class="tag-chip-text">${U.escapeHtml(String(item))}</span>
+                        <button type="button" class="tag-chip-remove" data-tag-remove="${i}" aria-label="Remove ${U.escapeAttr(String(item))}">&times;</button>
+                    </span>`,
+      )
+      .join("")}
+                ${!items.length ? '<span class="empty-note tag-empty">None set</span>' : ""}
+            </div>
+            <div class="tag-add">
+                <input class="input tag-add-input" type="text" placeholder="${U.escapeAttr(def.placeholder || "Add value\u2026")}" ${dlId ? `list="${dlId}"` : ""}>
+                <button type="button" class="btn btn-small tag-add-btn">Add</button>
+            </div>
+            ${dlId ? `<datalist id="${dlId}">${def.suggestions.map((s) => `<option value="${U.escapeAttr(s)}">`).join("")}</datalist>` : ""}
+            ${def.hint ? `<span class="field-hint">${U.escapeHtml(def.hint)}</span>` : ""}
+        </div>`;
+}
+
+function delaySubFieldHtml(groupLabel, subLabel, sub) {
+  const value = getDeep(loaded, sub.path);
+  return `
+        <label class="field field-item" title="${U.escapeAttr(fieldTooltip(sub.path, sub.desc))}">
+            <span class="hint-text">${U.escapeHtml(groupLabel)} \u2014 ${subLabel}</span>
+            <input class="input" type="text" data-path="${U.escapeAttr(sub.path)}"
+                value="${U.escapeAttr(value ?? "")}" placeholder="${U.escapeAttr(sub.placeholder || "")}">
+        </label>`;
+}
+
+function fieldHtml(path, def) {
+  switch (def.kind) {
+    case "text":
+    case "number":
+      return textFieldHtml(path, def);
+    case "select":
+      return selectFieldHtml(path, def);
+    case "tags":
+      return tagsFieldHtml(path, def);
+    case "delay":
+      return (
+        delaySubFieldHtml(def.label, "min", def.min) +
+        delaySubFieldHtml(def.label, "max", def.max)
+      );
+    default:
+      return "";
+  }
+}
+
+function webhookFilterTipHtml() {
+  return `
+        <p class="notice notice--info cfg-tip">
+            Set <strong>Webhook log filter</strong> to <em>on</em> before enabling a push-notification
+            webhook like ntfy, or you&rsquo;ll get a notification for every log line, including debug noise.
+            With it enabled, only account start, 2FA codes, and account completion summaries are delivered.
+            Use whitelist mode and the &ldquo;Webhook filter keywords&rdquo; field below to customize exactly
+            which notifications you receive.
+            <span class="notice-actions">
+                <button type="button" id="cfgWebhookFilterTipBtn" class="btn btn-primary btn-small">Apply recommended filter</button>
+                <span class="notice-sub">whitelist &middot; starting account, select number, collected</span>
+            </span>
+        </p>`;
+}
+
+function renderFields() {
+  const host = U.$("#cfgFields", rootEl);
+  if (!host) return;
+
+  host.innerHTML = FIELD_GROUPS.map(
+    (group) => `
+        <div class="acc-detail-group">
+            <h3 class="acc-detail-group-title">${U.escapeHtml(group.title)}</h3>
+            ${group.title === "Webhooks" ? webhookFilterTipHtml() : ""}
+            <div class="field-grid">
+                ${Object.entries(group.fields)
+        .map(([path, def]) => fieldHtml(path, def))
+        .join("")}
+            </div>
+        </div>`,
+  ).join("");
+
+  bindFieldEvents(host);
+}
+
+function bindFieldEvents(host) {
+  host.querySelectorAll("input.input[data-path]").forEach((input) => {
+    if (input.disabled) return; // locked/redacted - nothing to bind
+    const path = input.dataset.path;
+    const isNumber = input.type === "number";
+    const original = input.value;
+
+    const commit = async () => {
+      const next = input.value.trim();
+      if (next === original.trim()) return;
+      if (next === "") {
+        input.value = original;
+        return;
+      }
+      const value = isNumber ? Number(next) : next;
+      if (isNumber && Number.isNaN(value)) {
+        U.toast("Enter a valid number.", "error");
+        input.value = original;
+        return;
+      }
+      input.disabled = true;
+      try {
+        await save(nest(path, value), `${path} \u2192 ${value}`);
+        afterSave(nest(path, value));
+      } catch {
+        input.value = original; // save() already explained why
+      } finally {
+        input.disabled = false;
+      }
+    };
+
+    input.addEventListener("blur", commit);
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") input.blur();
+    });
+  });
+
+  host.querySelectorAll("select.input[data-path]").forEach((select) => {
+    const path = select.dataset.path;
+    const numeric = select.dataset.numeric === "1";
+    select.addEventListener("change", async () => {
+      const raw = select.value;
+      const value = numeric ? Number(raw) : raw;
+      select.disabled = true;
+      try {
+        await save(nest(path, value), `${path} \u2192 ${value}`);
+        afterSave(nest(path, value));
+      } catch {
+        const prev = getDeep(loaded, path);
+        select.value = prev == null ? "" : String(prev); // save() already explained why
+      } finally {
+        select.disabled = false;
+      }
+    });
+  });
+
+  host.querySelectorAll("[data-tags-path]").forEach((wrap) => {
+    const path = wrap.dataset.tagsPath;
+    const controls = () => wrap.querySelectorAll("input,button");
+
+    const commitTags = async (nextItems) => {
+      controls().forEach((el) => (el.disabled = true));
+      try {
+        await save(
+          nest(path, nextItems),
+          `${path} \u2192 ${nextItems.length} item${nextItems.length === 1 ? "" : "s"}`,
+        );
+        afterSave(nest(path, nextItems)); // re-renders this field with the new list
+      } catch {
+        controls().forEach((el) => (el.disabled = false)); // save() already explained why
+      }
+    };
+
+    wrap.querySelectorAll("[data-tag-remove]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const idx = Number(btn.dataset.tagRemove);
+        const items = Array.isArray(getDeep(loaded, path))
+          ? [...getDeep(loaded, path)]
+          : [];
+        items.splice(idx, 1);
+        commitTags(items);
+      });
+    });
+
+    const input = wrap.querySelector(".tag-add-input");
+    const addBtn = wrap.querySelector(".tag-add-btn");
+    const addFromInput = () => {
+      const value = input.value.trim();
+      if (!value) return;
+      const items = Array.isArray(getDeep(loaded, path))
+        ? [...getDeep(loaded, path)]
+        : [];
+      if (items.includes(value)) {
+        U.toast("Already in the list.", "info");
+        input.value = "";
+        return;
+      }
+      items.push(value);
+      commitTags(items);
+    };
+    addBtn?.addEventListener("click", addFromInput);
+    input?.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        addFromInput();
+      }
+    });
+  });
+
+  const tipBtn = U.$("#cfgWebhookFilterTipBtn", host);
+  tipBtn?.addEventListener("click", async () => {
+    tipBtn.disabled = true;
+    tipBtn.textContent = "Applying\u2026";
+    try {
+      await save(RECOMMENDED_WEBHOOK_FILTER, "recommended webhook filter");
+      afterSave(RECOMMENDED_WEBHOOK_FILTER);
+    } catch {
+      // save() already explained why
+    } finally {
+      tipBtn.disabled = false;
+      tipBtn.textContent = "Apply recommended filter";
+    }
+  });
 }
 
 function explainConfigError(e) {
@@ -450,6 +990,7 @@ function paint() {
   U.$("#cfgRedacted", rootEl).hidden = !meta.redacted;
   U.$("#cfgEditor", rootEl).value = JSON.stringify(loaded, null, 2);
   renderToggles();
+  renderFields();
   showNotice("cfgNotice", "");
 }
 
@@ -470,6 +1011,14 @@ export default {
                     <span class="panel-sub">Changes apply on the next run.</span>
                 </div>
                 <div class="cfg-toggle-groups" id="cfgToggles"></div>
+            </section>
+
+            <section class="panel" aria-labelledby="cfg-fields-heading">
+                <div class="panel-head">
+                    <h2 id="cfg-fields-heading">Detailed settings</h2>
+                    <span class="panel-sub">Text, numbers, and lists. Saves as you fill in each field.</span>
+                </div>
+                <div class="cfg-toggle-groups" id="cfgFields"></div>
             </section>
 
             <section class="panel" aria-labelledby="cfg-raw-heading">
@@ -549,6 +1098,7 @@ export default {
         );
         loaded = edited;
         renderToggles();
+        renderFields();
       } catch {
       }
     });
