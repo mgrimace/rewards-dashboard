@@ -1970,6 +1970,7 @@ tbody tr:hover {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
   gap: 0.5rem;
+  margin-bottom: 0.6rem;
 }
 
 .switch {

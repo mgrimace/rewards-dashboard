@@ -467,6 +467,13 @@ const FIELD_GROUPS = [
   },
 ];
 
+// Looked up by group title when rendering the combined toggles+fields
+// section, so each group's card can render its fields (if any) right under
+// its toggles (if any) - see renderSettings().
+const FIELD_GROUPS_BY_TITLE = new Map(
+  FIELD_GROUPS.map((g) => [g.title, g.fields]),
+);
+
 // The exact filter the bot's own maintainer uses for push-notification
 // webhooks (ntfy, and equally relevant to Discord/Telegram): without it,
 // every log line - including debug noise - goes out as a notification.
@@ -548,15 +555,15 @@ function localMerge(base, patch) {
   return out;
 }
 
-// Folds a successful save's patch into `loaded` and refreshes every view
-// that reads from it. Used by the Detailed settings controls (text/select/
-// tag fields, the recommended-filter tip) rather than the toggle switches,
-// which update `loaded` + the editor directly to avoid rebuilding the whole
-// switch grid (and losing keyboard focus) on every single click.
+// Folds a successful save's patch into `loaded` and refreshes the combined
+// toggles+fields section plus the raw JSON editor. Used by every control in
+// that section (toggle switches, text/select/tag fields, the recommended-
+// filter tip) - a single rebuild keeps all of it consistent, e.g. flipping
+// "Webhook log filter" on via the tip button correctly checks that same
+// toggle switch too, since they're now rendered from the same pass.
 function afterSave(patch) {
   loaded = localMerge(loaded, patch);
-  renderToggles();
-  renderFields();
+  renderSettings();
   U.$("#cfgEditor", rootEl).value = JSON.stringify(loaded, null, 2);
 }
 
@@ -586,49 +593,62 @@ function switchHtml(b) {
         </label>`;
 }
 
-function renderToggles() {
-  const host = U.$("#cfgToggles", rootEl);
-  const bools = booleanPaths(loaded);
-  if (!bools.length) {
-    host.innerHTML =
-      '<p class="empty-note">No boolean settings in this config.</p>';
-    return;
-  }
+function renderSettings() {
+  const host = U.$("#cfgSettings", rootEl);
+  if (!host) return;
 
-  // Group in TOGGLE_GROUP_ORDER order; anything unrecognized falls into a
-  // trailing "Other" group rather than being dropped.
-  const byGroup = new Map();
+  // Group booleans in TOGGLE_GROUP_ORDER order; anything unrecognized falls
+  // into a trailing "Other settings" group rather than being dropped.
+  const bools = booleanPaths(loaded);
+  const togglesByGroup = new Map();
   for (const b of bools) {
     const groupTitle = TOGGLE_META[b.path]?.group || OTHER_GROUP_TITLE;
-    if (!byGroup.has(groupTitle)) byGroup.set(groupTitle, []);
-    byGroup.get(groupTitle).push(b);
+    if (!togglesByGroup.has(groupTitle)) togglesByGroup.set(groupTitle, []);
+    togglesByGroup.get(groupTitle).push(b);
   }
 
-  host.innerHTML = TOGGLE_GROUP_ORDER.filter((title) => byGroup.has(title))
-    .map(
-      (title) => `
+  // TOGGLE_GROUP_ORDER already lists every group that can have detail
+  // fields too (Core/Search settings/Logging/Webhooks are a subset of it),
+  // so it's the single source of truth for section order - toggles for a
+  // group render first, its detail fields render underneath, in the same
+  // card, so e.g. "Webhook log filter" (the enable toggle) sits directly
+  // above the filter's mode/levels/keywords fields it controls.
+  host.innerHTML = TOGGLE_GROUP_ORDER.filter(
+    (title) => togglesByGroup.has(title) || FIELD_GROUPS_BY_TITLE.has(title),
+  )
+    .map((title) => {
+      const toggles = togglesByGroup.get(title) || [];
+      const fields = FIELD_GROUPS_BY_TITLE.get(title);
+      return `
         <div class="acc-detail-group">
             <h3 class="acc-detail-group-title">${U.escapeHtml(title)}</h3>
-            <div class="switch-grid">
-                ${byGroup.get(title).map(switchHtml).join("")}
-            </div>
-        </div>`,
-    )
+            ${toggles.length ? `<div class="switch-grid">${toggles.map(switchHtml).join("")}</div>` : ""}
+            ${title === "Webhooks" ? webhookFilterTipHtml() : ""}
+            ${fields
+          ? `<div class="field-grid">${Object.entries(fields)
+            .map(([path, def]) => fieldHtml(path, def))
+            .join("")}</div>`
+          : ""
+        }
+        </div>`;
+    })
     .join("");
 
-  host.querySelectorAll("input[data-path]").forEach((input) =>
+  bindToggleEvents(host);
+  bindFieldEvents(host);
+}
+
+function bindToggleEvents(host) {
+  host.querySelectorAll('input[type="checkbox"][data-path]').forEach((input) =>
     input.addEventListener("change", async () => {
       const path = input.dataset.path;
       const value = input.checked;
       input.disabled = true;
       try {
         await save(nest(path, value), `${path} \u2192 ${value}`);
-        setDeep(loaded, path, value);
-        U.$("#cfgEditor", rootEl).value = JSON.stringify(loaded, null, 2);
-        renderFields(); // in case the changed toggle affects a Detailed settings field
+        afterSave(nest(path, value)); // rebuilds the whole section from the new state
       } catch {
         input.checked = !value; // roll the switch back; save() already explained why
-      } finally {
         input.disabled = false;
       }
     }),
@@ -744,26 +764,6 @@ function webhookFilterTipHtml() {
                 <span class="notice-sub">whitelist &middot; starting account, select number, collected</span>
             </span>
         </p>`;
-}
-
-function renderFields() {
-  const host = U.$("#cfgFields", rootEl);
-  if (!host) return;
-
-  host.innerHTML = FIELD_GROUPS.map(
-    (group) => `
-        <div class="acc-detail-group">
-            <h3 class="acc-detail-group-title">${U.escapeHtml(group.title)}</h3>
-            ${group.title === "Webhooks" ? webhookFilterTipHtml() : ""}
-            <div class="field-grid">
-                ${Object.entries(group.fields)
-        .map(([path, def]) => fieldHtml(path, def))
-        .join("")}
-            </div>
-        </div>`,
-  ).join("");
-
-  bindFieldEvents(host);
 }
 
 function bindFieldEvents(host) {
@@ -989,8 +989,7 @@ async function loadConfig(reveal) {
 function paint() {
   U.$("#cfgRedacted", rootEl).hidden = !meta.redacted;
   U.$("#cfgEditor", rootEl).value = JSON.stringify(loaded, null, 2);
-  renderToggles();
-  renderFields();
+  renderSettings();
   showNotice("cfgNotice", "");
 }
 
@@ -1005,20 +1004,12 @@ export default {
             <p class="notice notice--warn" id="cfgNotice" hidden></p>
             <div id="cfgDrift" hidden></div>
 
-            <section class="panel" aria-labelledby="cfg-toggle-heading">
+            <section class="panel" aria-labelledby="cfg-settings-heading">
                 <div class="panel-head">
-                    <h2 id="cfg-toggle-heading">Quick toggles</h2>
-                    <span class="panel-sub">Changes apply on the next run.</span>
+                    <h2 id="cfg-settings-heading">Settings</h2>
+                    <span class="panel-sub">Saves each change automatically. Applies on the next run.</span>
                 </div>
-                <div class="cfg-toggle-groups" id="cfgToggles"></div>
-            </section>
-
-            <section class="panel" aria-labelledby="cfg-fields-heading">
-                <div class="panel-head">
-                    <h2 id="cfg-fields-heading">Detailed settings</h2>
-                    <span class="panel-sub">Text, numbers, and lists. Saves as you fill in each field.</span>
-                </div>
-                <div class="cfg-toggle-groups" id="cfgFields"></div>
+                <div class="cfg-toggle-groups" id="cfgSettings"></div>
             </section>
 
             <section class="panel" aria-labelledby="cfg-raw-heading">
@@ -1097,8 +1088,7 @@ export default {
           `${Object.keys(patch).length} field${Object.keys(patch).length === 1 ? "" : "s"}`,
         );
         loaded = edited;
-        renderToggles();
-        renderFields();
+        renderSettings();
       } catch {
       }
     });
