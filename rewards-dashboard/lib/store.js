@@ -507,6 +507,18 @@ class Store {
             event.runtimeMin,
             running.id,
           );
+          // RUN-END firing is proof the run is genuinely over - any account
+          // still marked 'running' from it never got its own ACCOUNT-END or
+          // ACCOUNT-ERROR (worker died silently), and would otherwise stay
+          // stuck 'running' forever. Same sweep _closeRunningRun does for
+          // abnormal closures, also needed here on the happy path.
+          for (const row of this.stmts.orphanedRunningAccounts.all(running.startTs)) {
+            this.stmts.markAccountInterrupted.run(
+              event.ts,
+              "Run completed, but this account's own result was never logged (its worker likely failed silently).",
+              row.email,
+            );
+          }
         } else {
           this.stmts.insertOrphanRunEnd.run(
             event.ts,
