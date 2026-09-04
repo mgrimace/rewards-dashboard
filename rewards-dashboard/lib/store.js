@@ -7,7 +7,6 @@ const { DatabaseSync } = require("node:sqlite");
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, "..", "data");
 const DB_FILE = path.join(DATA_DIR, "dashboard.sqlite");
 
-
 const MAX_ACTIVITY_ROWS = 5000;
 
 // Last-resort cutoff for a 'running' row whose account roster never filled
@@ -28,6 +27,21 @@ const RUN_STALE_BACKSTOP_MS = 20 * 60 * 60 * 1000;
 // exits that already happened, so RUN-END never fires despite every account
 // having actually completed.
 const AUTO_CLOSE_GRACE_MS = 15 * 1000;
+
+// No legitimate run takes more than a couple minutes to log its very first
+// ACCOUNT-START - the app logs it within ~1s of RUN-START in every observed
+// case. accountDelay/manual-login waits only explain a SUBSEQUENT account
+// being slow to start, never the first one. So "zero accounts started" this
+// long after RUN-START is a much stronger and much faster signal of a dead
+// process than RUN_STALE_BACKSTOP_MS's 20-hour window (which exists for a
+// different problem: a run that died partway through a roster that DID
+// start filling). Kept deliberately short.
+const ZERO_START_STALE_MS = 5 * 60 * 1000;
+
+// How often the zero-start watchdog checks, independent of incoming events -
+// needed because a run stuck in the zero-start state produces no further
+// log lines at all to trigger a check from apply().
+const ZERO_START_WATCHDOG_INTERVAL_MS = 60 * 1000;
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS meta (
@@ -109,6 +123,26 @@ class Store {
     // Ephemeral (not persisted) - transient "waiting between accounts" state
     // is only meaningful while live, unlike everything else in this class.
     this._pendingDelay = null;
+
+    // Completion evidence for the currently running process. Deliberately
+    // NOT persisted - describes evidence from the live log stream only. If
+    // the dashboard restarts, it should not assume an old process completed
+    // successfully merely because it had partial evidence before restart.
+    this._resetCompletionEvidence();
+
+    // Watchdog for runs whose very first account never even logged
+    // ACCOUNT-START (see _tryCloseZeroStartRun below for why this needs its
+    // own, much shorter timeout than RUN_STALE_BACKSTOP_MS). Runs
+    // independently of incoming events, since a truly dead run produces no
+    // further events to trigger a check.
+    this._zeroStartWatchdog = setInterval(() => {
+      try {
+        this._tryCloseZeroStartRun();
+      } catch {
+        /* best-effort safety net */
+      }
+    }, ZERO_START_WATCHDOG_INTERVAL_MS);
+    if (this._zeroStartWatchdog.unref) this._zeroStartWatchdog.unref();
   }
 
   _migrate() {
@@ -266,6 +300,15 @@ class Store {
                 UPDATE accounts SET status = 'error', last_end_at = ?, last_error = ?
                 WHERE email = ? AND status = 'running'
             `),
+      // RUN-END is authoritative proof that the overall run completed.
+      // An account still marked 'running' at this point did not emit its own
+      // ACCOUNT-END/ACCOUNT-ERROR, but it must not remain 'running' forever.
+      // Keep the diagnostic in last_error so the missing worker result is
+      // visible without incorrectly classifying the completed run as an error.
+      markAccountCompletedWithoutResult: this.db.prepare(`
+                UPDATE accounts SET status = 'success', last_end_at = ?, last_error = ?
+                WHERE email = ? AND status = 'running'
+            `),
       allHistories: this.db.prepare(`
                 SELECT email, ts, points, gained, duration_sec as durationSec
                 FROM account_history
@@ -312,6 +355,99 @@ class Store {
   // ACCOUNT-START, or cleared because the run itself ended/closed).
   get pendingDelay() {
     return this._pendingDelay;
+  }
+
+  _resetCompletionEvidence() {
+    this._workersExitedCleanly = false;
+    this._workersExitedAt = null;
+    this._anyWorkerExitedUncleanly = false;
+
+    this._successfulWrapperCompletion = false;
+    this._successfulWrapperCompletionAt = null;
+    this._wrapperFailureSeen = false;
+  }
+
+  // Successful completion requires BOTH:
+  //   1. The final cluster worker exited with Code 0, no signal, and
+  //      Active workers: 0, AND no other worker this run ever exited
+  //      uncleanly (see the cluster-worker-exit case in apply()).
+  //   2. The wrapper reported successful completion.
+  // This is the fallback for the bot-side clustering bug where RUN-END
+  // itself never gets logged even though the process really did finish
+  // cleanly - it must NOT fire on its own from "Lock released"/"Script
+  // finished" alone, since those also happen after crashes/kills.
+  _tryCloseFromSuccessfulProcessCompletion(eventTs) {
+    const running = this.stmts.findRunningRun.get();
+    if (!running) return false;
+    if (!this._workersExitedCleanly || !this._successfulWrapperCompletion) {
+      return false;
+    }
+
+    const endTs =
+      this._successfulWrapperCompletionAt ||
+      this._workersExitedAt ||
+      eventTs ||
+      new Date().toISOString();
+
+    const totals = this.stmts.sumHistorySince.get(running.startTs);
+    const resolved = this.stmts.accountsResolvedSince.get(running.startTs);
+    const gained = totals.gained || 0;
+    const newTotal = totals.points || 0;
+    const oldTotal = newTotal - gained;
+    const runtimeMin = Number(
+      ((Date.parse(endTs) - Date.parse(running.startTs)) / 60000).toFixed(1),
+    );
+
+    this.stmts.closeRunFull.run(
+      "done",
+      endTs,
+      resolved.n || 0,
+      gained,
+      oldTotal,
+      newTotal,
+      runtimeMin,
+      0,
+      null,
+      running.id,
+    );
+
+    // The overall process completed successfully, so any account still
+    // marked 'running' failed to emit its own terminal event. Mark it
+    // success (not error) since the run itself succeeded - keep the
+    // diagnostic in last_error so the missing per-account result stays
+    // visible.
+    for (const row of this.stmts.orphanedRunningAccounts.all(running.startTs)) {
+      this.stmts.markAccountCompletedWithoutResult.run(
+        endTs,
+        "Run completed successfully, but this account's own result was never logged (its worker likely failed silently).",
+        row.email,
+      );
+    }
+
+    this._pendingDelay = null;
+    this._resetCompletionEvidence();
+    return true;
+  }
+
+  // Watchdog for a run whose first account never even started (see
+  // ZERO_START_STALE_MS above). Left unhandled, this also wedges every
+  // future run: the run-start echo check below treats "roster incomplete"
+  // as "same run continuing" for up to RUN_STALE_BACKSTOP_MS (20h), and a
+  // run with zero accounts started can NEVER complete its roster, so every
+  // subsequent RUN-START within that window would otherwise be silently
+  // swallowed as a supposed echo of this dead run instead of starting a new
+  // one.
+  _tryCloseZeroStartRun() {
+    const running = this.stmts.findRunningRun.get();
+    if (!running) return;
+
+    const startedCount = this.stmts.accountsStartedSince.get(running.startTs).n;
+    if (startedCount > 0) return;
+
+    const ageMs = Date.now() - Date.parse(running.startTs);
+    if (!Number.isFinite(ageMs) || ageMs < ZERO_START_STALE_MS) return;
+
+    this._closeRunningRun(running, "stalled", new Date().toISOString());
   }
 
   _pushActivity(event) {
@@ -432,6 +568,8 @@ class Store {
         // before its roster ever filled (e.g. crashed after account 1 of
         // 3) - nothing will ever complete that roster, so fall back to a
         // generous time backstop just for that case.
+        this._resetCompletionEvidence();
+
         const alreadyRunning = this.stmts.findRunningRun.get();
         if (alreadyRunning) {
           const startedCount = alreadyRunning.totalAccounts
@@ -441,7 +579,18 @@ class Store {
             alreadyRunning.totalAccounts != null && startedCount < alreadyRunning.totalAccounts;
           const ageMs = Date.parse(event.ts) - Date.parse(alreadyRunning.startTs);
           const withinBackstop = Number.isFinite(ageMs) && ageMs >= 0 && ageMs < RUN_STALE_BACKSTOP_MS;
-          const isEcho = rosterIncomplete && withinBackstop;
+          // A run whose roster never even started (startedCount === 0) can
+          // never complete its roster, so it would otherwise look like an
+          // "echo" forever (up to the 20h backstop) and swallow every
+          // subsequent RUN-START. The zero-start watchdog normally closes
+          // these well before another RUN-START arrives, but this is a
+          // safety net for e.g. the dashboard process itself having
+          // restarted and lost that timer.
+          const zeroStartStale =
+            startedCount === 0 &&
+            Number.isFinite(ageMs) &&
+            ageMs >= ZERO_START_STALE_MS;
+          const isEcho = rosterIncomplete && withinBackstop && !zeroStartStale;
           if (isEcho) {
             changed = false;
             break;
@@ -453,7 +602,11 @@ class Store {
           // guessing "crashed". markInterruptedByBackendRestart() below
           // handles the common container-recreate case immediately instead
           // of leaving it to this backstop.
-          this._closeRunningRun(alreadyRunning, "interrupted", event.ts);
+          this._closeRunningRun(
+            alreadyRunning,
+            zeroStartStale ? "stalled" : "interrupted",
+            event.ts,
+          );
         }
         this.stmts.insertRunStart.run(
           event.ts,
@@ -465,6 +618,68 @@ class Store {
         this._pushActivity(event);
         break;
       }
+      case "cluster-worker-exit": {
+        // Worker PIDs are deliberately irrelevant to the decision - every
+        // account can have a different PID and every run can use completely
+        // different PIDs.
+        //
+        // IMPORTANT: an earlier worker in the same run can exit uncleanly
+        // (crash/signal) before a LATER worker happens to be the one that
+        // reports "Active workers: 0". Only checking the final exit line
+        // would miss that earlier crash, so an unclean exit is latched for
+        // the whole run and blocks treating a later clean "Active workers:
+        // 0" line as proof the overall process completed cleanly.
+        const exitedCleanly = event.code === 0 && event.signal == null;
+        if (!exitedCleanly) {
+          this._anyWorkerExitedUncleanly = true;
+        }
+        if (
+          exitedCleanly &&
+          event.activeWorkers === 0 &&
+          !this._anyWorkerExitedUncleanly
+        ) {
+          this._workersExitedCleanly = true;
+          this._workersExitedAt = event.ts;
+          // May close the run immediately if wrapper completion evidence
+          // already arrived.
+          this._tryCloseFromSuccessfulProcessCompletion(event.ts);
+        }
+        this._pushActivity(event);
+        break;
+      }
+      case "wrapper-script-completed": {
+        // "Script completed successfully (via API)." is an explicit,
+        // unambiguous positive completion signal.
+        this._successfulWrapperCompletion = true;
+        this._successfulWrapperCompletionAt = event.ts;
+        this._tryCloseFromSuccessfulProcessCompletion(event.ts);
+        this._pushActivity(event);
+        break;
+      }
+      case "wrapper-script-finished": {
+        // Weaker evidence than "Script completed successfully": some
+        // wrapper versions print this unconditionally on the way out,
+        // including right after "ERROR: Script failed!". Only count it as
+        // completion evidence if no failure has been seen yet this run, so
+        // it can't silently resurrect a run we already know failed.
+        if (!this._wrapperFailureSeen) {
+          this._successfulWrapperCompletion = true;
+          this._successfulWrapperCompletionAt = event.ts;
+          this._tryCloseFromSuccessfulProcessCompletion(event.ts);
+        }
+        this._pushActivity(event);
+        break;
+      }
+      case "wrapper-script-failed": {
+        // Explicit wrapper failure is not completion evidence, and it
+        // "poisons" the rest of this run so a later bare "Script finished"
+        // line can't flip it back to success.
+        this._wrapperFailureSeen = true;
+        this._successfulWrapperCompletion = false;
+        this._successfulWrapperCompletionAt = null;
+        this._pushActivity(event);
+        break;
+      }
       case "wrapper-lock-acquired": {
         this._pushActivity({
           ...event,
@@ -473,23 +688,33 @@ class Store {
         break;
       }
       case "wrapper-lock-released": {
-        // Fires via run_daily.sh's bash EXIT trap - the parser treats both
-        // "Lock released" and "Script finished" as this same signal, and
-        // per its own comment it's designed to still fire even if the app
-        // crashed outright and skipped its own RUN-END line entirely. If a
-        // run is still marked 'running' by the time this shows up, that's
-        // proof nothing else is coming for it - close it out here rather
+        // Fires via run_daily.sh's bash EXIT trap, including after a
+        // crash/kill - so by itself it's never proof of success. If worker +
+        // wrapper evidence already proves a clean completion, this may be
+        // the event that finally closes the run (e.g. if it arrived before
+        // RUN-END for some reason). Otherwise, if a run is still marked
+        // 'running' by the time this shows up, that's proof nothing else is
+        // coming for it and it's genuinely abnormal - close it out rather
         // than leaving a permanent ghost. This only covers wrapper-invoked
         // runs (cron/RUN_ON_START); a run started directly via the
         // dashboard/API still relies on closeRunOnExit for that case.
-        const stillRunning = this.stmts.findRunningRun.get();
-        if (stillRunning) {
-          this._closeRunningRun(stillRunning, "interrupted", event.ts);
+        const closedSuccessfully = this._tryCloseFromSuccessfulProcessCompletion(
+          event.ts,
+        );
+
+        if (!closedSuccessfully) {
+          const stillRunning = this.stmts.findRunningRun.get();
+          if (stillRunning) {
+            this._closeRunningRun(stillRunning, "interrupted", event.ts);
+          }
         }
+
         if (event.pid) {
           this._pushActivity({
             ...event,
-            message: `Cron run finished (lock released, PID ${event.pid})`,
+            message: closedSuccessfully
+              ? `Cron run finished successfully (lock released, PID ${event.pid})`
+              : `Cron run finished (lock released, PID ${event.pid})`,
           });
         }
         break;
@@ -498,22 +723,30 @@ class Store {
         this._pendingDelay = null;
         const running = this.stmts.findRunningRun.get();
         if (running) {
-          this.stmts.closeRun.run(
+          // RUN-END only ever gets logged by the app itself, so we know the
+          // process didn't crash or get signaled - use closeRunFull (not
+          // closeRun) so exit_code/exit_signal stay consistent with the
+          // other closing paths.
+          this.stmts.closeRunFull.run(
+            "done",
             event.ts,
             event.accountsProcessed,
             event.totalGained,
             event.oldTotal,
             event.newTotal,
             event.runtimeMin,
+            0,
+            null,
             running.id,
           );
           // RUN-END firing is proof the run is genuinely over - any account
           // still marked 'running' from it never got its own ACCOUNT-END or
           // ACCOUNT-ERROR (worker died silently), and would otherwise stay
-          // stuck 'running' forever. Same sweep _closeRunningRun does for
-          // abnormal closures, also needed here on the happy path.
+          // stuck 'running' forever. Since this is a successfully completed
+          // overall run, finalize those accounts as success while retaining
+          // the diagnostic that their individual result was missing.
           for (const row of this.stmts.orphanedRunningAccounts.all(running.startTs)) {
-            this.stmts.markAccountInterrupted.run(
+            this.stmts.markAccountCompletedWithoutResult.run(
               event.ts,
               "Run completed, but this account's own result was never logged (its worker likely failed silently).",
               row.email,
@@ -530,6 +763,7 @@ class Store {
             event.runtimeMin,
           );
         }
+        this._resetCompletionEvidence();
         this._pushActivity(event);
         break;
       }
@@ -613,6 +847,8 @@ class Store {
         row.email,
       );
     }
+
+    this._resetCompletionEvidence();
   }
 
   // Safety net for the bot-side clustering bug where a worker's exit is
@@ -737,6 +973,7 @@ class Store {
 
   close() {
     if (this._autoCloseTimer) clearTimeout(this._autoCloseTimer);
+    if (this._zeroStartWatchdog) clearInterval(this._zeroStartWatchdog);
     this.saveNow();
     this.db.close();
   }

@@ -13,6 +13,18 @@ const ACCOUNT_START_RE = /^Starting account:\s(\S+)\s\|\sgeoLocale:\s(.*)$/;
 const ACCOUNT_END_RE =
   /^Completed account:\s(\S+)\s\|\spointsGained=(-?\d+)\s\|\spreviousBalance=(\d+)\s\|\scurrentBalance=(\d+)\s\|\sdurationSeconds=([\d.]+)$/;
 const ACCOUNT_ERR_RE = /^(\S+@\S+):\s([\s\S]*)$/;
+
+// src/index.ts's per-account flow wrapper (Mobile.ts / Desktop.ts) logs this
+// under title FLOW at ERROR level when an account's automation throws -
+// e.g. a login timeout - but does NOT also log a titled ACCOUNT-ERROR line
+// for it. That means an account that dies this way looks, to everything
+// keyed off the ACCOUNT-ERROR title (account resolution counts, the
+// dashboard's own "is this account still running" check), exactly like a
+// worker that's still silently in progress - it never leaves 'running'.
+// Observed in production for both the mobile and desktop flow wrappers, so
+// this is treated as an equally authoritative account-level failure signal.
+const FLOW_FAILED_RE =
+  /^(?:Mobile|Desktop) flow failed for\s(\S+@\S+):\s([\s\S]*)$/;
 const RUN_START_RE =
   /^Starting Microsoft Rewards Script\s\|\sv([\w.\-]+)\s\|\sAccounts:\s(\d+)\s\|\sClusters:\s(\d+)$/;
 const RUN_END_RE =
@@ -45,14 +57,29 @@ const WRAPPER_LINE_RE = /^\[[^\]]*\]\s\[run_daily\.sh\]\s([\s\S]*)$/;
 const WRAPPER_LOCK_ACQUIRED_RE =
   /^Lock acquired successfully\s\(PID:\s*(\d+)\)$/;
 const WRAPPER_LOCK_RELEASED_RE = /^Lock released\s\(PID:\s*(\d+)\)$/;
-// "Script finished" is printed unconditionally right before the wrapper's
-// natural exit (which is what triggers the EXIT trap that logs "Lock
-// released"). Treating both as valid completion signals means a run still
-// gets marked done even if the trap-triggered line is ever delayed, missing
-// from the captured log stream, or the release_lock() body no-ops because
-// the lock's PID didn't match (see run_daily.sh's release_lock()).
+// "Script finished" is printed right before the wrapper's natural exit
+// (which is what triggers the EXIT trap that logs "Lock released"). Kept as
+// its own event kind (see store.js) rather than folded into "Lock released",
+// because "Lock released" fires from the EXIT trap even after a crash/kill,
+// so it can't be trusted as completion evidence by itself either.
 const WRAPPER_SCRIPT_FINISHED_RE = /^Script finished$/;
+// Explicit successful completion signal from the API-triggered execution
+// path. Distinguished from WRAPPER_SCRIPT_FINISHED_RE because "Script
+// finished" alone is weaker evidence - some wrapper versions print it
+// unconditionally on the way out, including right after a failure.
+const WRAPPER_SCRIPT_COMPLETED_RE =
+  /^Script completed successfully(?:\s*\(via API\))?\.?$/;
 const WRAPPER_SCRIPT_FAILED_RE = /^ERROR: Script failed!$/;
+
+// Cluster worker lifecycle, e.g.:
+// [MAIN] [WARN] MAIN [CLUSTER-WORKER-EXIT] Worker 34781 exit | Code: 0 | Signal: n/a | Active workers: 0
+//
+// Parsed as a structured event (rather than left as "generic") because the
+// store uses Code + Signal + Active workers as one of its signals for
+// whether the whole clustered process completed cleanly, as a fallback for
+// when RUN-END itself never gets logged.
+const CLUSTER_WORKER_EXIT_RE =
+  /^Worker\s+(\d+)\s+exit\s+\|\s+Code:\s*(-?\d+|n\/a)\s+\|\s+Signal:\s*([^|]+)\s+\|\s+Active workers:\s*(\d+)$/;
 
 /**
  * Strips the leading Docker timestamp, returns { dockerTs, rest }.
@@ -190,6 +217,46 @@ function parseLine(rawLine) {
       }
       break;
     }
+    case "FLOW": {
+      // Reuses the existing "account-error" event kind (not a new kind) so
+      // the store's resolution-counting and orphan-cleanup logic - all of
+      // which is keyed off title === 'ACCOUNT-ERROR', not "kind" - picks
+      // this up for free with no store.js changes needed. The original
+      // "FLOW" title/message are still fully recoverable from `raw`.
+      if (level.toLowerCase() === "error") {
+        const fm = FLOW_FAILED_RE.exec(message);
+        if (fm) {
+          return {
+            ...base,
+            title: "ACCOUNT-ERROR",
+            kind: "account-error",
+            email: fm[1],
+            error: fm[2],
+          };
+        }
+      }
+      break;
+    }
+    case "CLUSTER-WORKER-EXIT": {
+      const wm = CLUSTER_WORKER_EXIT_RE.exec(message);
+      if (wm) {
+        const code = wm[2].toLowerCase() === "n/a" ? null : Number(wm[2]);
+        const rawSignal = wm[3].trim();
+        const signal =
+          !rawSignal || rawSignal.toLowerCase() === "n/a"
+            ? null
+            : rawSignal;
+        return {
+          ...base,
+          kind: "cluster-worker-exit",
+          pid: Number(wm[1]),
+          code,
+          signal,
+          activeWorkers: Number(wm[4]),
+        };
+      }
+      break;
+    }
     default:
       break;
   }
@@ -227,12 +294,16 @@ function parseWrapperLine(dockerTs, clean) {
   if (released)
     return { ...base, kind: "wrapper-lock-released", pid: released[1] };
 
+  if (WRAPPER_SCRIPT_COMPLETED_RE.test(message)) {
+    return { ...base, kind: "wrapper-script-completed" };
+  }
+
   if (WRAPPER_SCRIPT_FINISHED_RE.test(message)) {
-    return { ...base, kind: "wrapper-lock-released", pid: null };
+    return { ...base, kind: "wrapper-script-finished" };
   }
 
   if (WRAPPER_SCRIPT_FAILED_RE.test(message)) {
-    return { ...base, level: "error", kind: "generic" };
+    return { ...base, level: "error", kind: "wrapper-script-failed" };
   }
 
   // Other wrapper lines (self-heal messages, "Starting script...", etc.)
