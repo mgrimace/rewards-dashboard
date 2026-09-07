@@ -228,11 +228,18 @@ function renderAccountRows(root) {
             : "No run today";
 
       const accountHistory = histories[a.key] || [];
-      let lastGain = null;
+      let gainHtml = "";
       if (accountHistory.length >= 2) {
         const latest = accountHistory[accountHistory.length - 1];
         const previous = accountHistory[accountHistory.length - 2];
-        lastGain = latest.points - previous.points;
+        const trueGain = latest.points - previous.points;
+        const selfReported = latest.gained ?? 0;
+        const other = trueGain - selfReported;
+        const gainText =
+          other !== 0
+            ? `${U.fmtSigned(selfReported)}${other >= 0 ? "+" : "-"}${Math.abs(other).toLocaleString()} pts`
+            : `${U.fmtSigned(trueGain)} pts`;
+        gainHtml = ` \u00b7 <span class="gain-val" title="Change in points since last check-in from all sources">${gainText}</span>`;
       }
 
       const dur = a.lastDurationSec != null ? U.fmtDuration(a.lastDurationSec) : null;
@@ -242,7 +249,7 @@ function renderAccountRows(root) {
           ? `<span class="hero-sub-running">Running\u2026 ${U.escapeHtml(U.fmtRelative(a.lastStartAt))}</span>`
           : `Last Run: ${U.escapeHtml(U.fmtRelative(a.lastEndAt || a.lastStartAt))}${
               dur ? ` \u00b7 <span title="Last run duration">⏱ ${U.escapeHtml(dur)}</span>` : ""
-            }${lastGain != null ? ` \u00b7 <span class="gain-val">${U.fmtSigned(lastGain)} pts</span>` : ""}`;
+            }${gainHtml}`;
 
       return `<div class="hero-row">
             <div class="hero-bar-cell">${barCell}</div>

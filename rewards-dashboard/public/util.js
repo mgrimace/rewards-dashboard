@@ -131,9 +131,23 @@ export function localDateLabel(key, options) {
   return new Date(y, m - 1, d).toLocaleDateString(undefined, options);
 }
 
+// Buckets history rows by day, using the TRUE point movement detected
+// between consecutive check-ins (points[i] - points[i-1]) rather than
+// summing each row's own self-reported `gained` value. A run only reports
+// what IT did (e.g. searches/activities), but the account's visible balance
+// can also move between runs from other sources (delayed credit posting,
+// Xbox/GamePass rewards, manual redemption reversals, etc.) - summing
+// self-reported gained silently drops that movement from "today" and the
+// heatmap. A detected change is attributed to the day it was OBSERVED
+// (the later row's day), not any day it may have actually been earned on,
+// since that's the only thing the dashboard can ever know for certain.
 export function bucketByDay(history) {
   const days = new Map();
+  let prevPoints = null;
   for (const h of history) {
+    const trueGained = prevPoints == null ? (h.gained ?? 0) : h.points - prevPoints;
+    prevPoints = h.points;
+
     const { year, month, day } = tzDateParts(h.ts);
     const dayKey = `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
     if (!days.has(dayKey)) {
@@ -145,7 +159,7 @@ export function bucketByDay(history) {
       });
     }
     const bucket = days.get(dayKey);
-    bucket.gained += h.gained ?? 0;
+    bucket.gained += trueGained;
     bucket.lastTotal = h.points;
   }
   return [...days.values()].sort((a, b) => a.dayKey.localeCompare(b.dayKey));
