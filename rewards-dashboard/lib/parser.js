@@ -69,7 +69,11 @@ const WRAPPER_SCRIPT_FINISHED_RE = /^Script finished$/;
 // unconditionally on the way out, including right after a failure.
 const WRAPPER_SCRIPT_COMPLETED_RE =
   /^Script completed successfully(?:\s*\(via API\))?\.?$/;
-const WRAPPER_SCRIPT_FAILED_RE = /^ERROR: Script failed!$/;
+// Mirrors WRAPPER_SCRIPT_COMPLETED_RE's optional "(via API)" qualifier -
+// observed in production as "ERROR: Script failed (via API)!" when the run
+// was invoked through the Control API, vs. the bare form for a cron-invoked
+// run.
+const WRAPPER_SCRIPT_FAILED_RE = /^ERROR: Script failed(?:\s*\(via API\))?!$/;
 
 // Cluster worker lifecycle, e.g.:
 // [MAIN] [WARN] MAIN [CLUSTER-WORKER-EXIT] Worker 34781 exit | Code: 0 | Signal: n/a | Active workers: 0

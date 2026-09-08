@@ -38,6 +38,16 @@ const AUTO_CLOSE_GRACE_MS = 15 * 1000;
 // start filling). Kept deliberately short.
 const ZERO_START_STALE_MS = 5 * 60 * 1000;
 
+// General safety net for a run that hangs PARTWAY through - e.g. the
+// process deadlocks on a local resource (observed in production: a
+// "database is locked" error from the bot's own local cache DB) without
+// crashing, exiting any worker, or logging anything else ever again. Unlike
+// ZERO_START_STALE_MS this can't be just a few minutes, since a run
+// legitimately produces bursty gaps (accountDelay waits, slow searches) -
+// but a run that's produced ABSOLUTELY NOTHING for this long, across every
+// account, is well beyond any gap seen in normal operation.
+const RUN_NO_ACTIVITY_STALE_MS = 90 * 60 * 1000;
+
 // How often the zero-start watchdog checks, independent of incoming events -
 // needed because a run stuck in the zero-start state produces no further
 // log lines at all to trigger a check from apply().
@@ -138,6 +148,11 @@ class Store {
     this._zeroStartWatchdog = setInterval(() => {
       try {
         this._tryCloseZeroStartRun();
+      } catch {
+        /* best-effort safety net */
+      }
+      try {
+        this._tryCloseStaleNoActivityRun();
       } catch {
         /* best-effort safety net */
       }
@@ -260,6 +275,14 @@ class Store {
                 SELECT COUNT(DISTINCT email) as n, MAX(ts) as lastTs
                 FROM activity
                 WHERE title IN ('ACCOUNT-END', 'ACCOUNT-ERROR') AND email IS NOT NULL AND ts >= ?
+            `),
+      lastActivitySince: this.db.prepare(`
+                SELECT MAX(ts) as ts FROM activity WHERE ts >= ?
+            `),
+      lastLoginPromptKindSince: this.db.prepare(`
+                SELECT kind FROM activity
+                WHERE ts >= ? AND kind IN ('login-number', 'login-number-resolved')
+                ORDER BY ts DESC LIMIT 1
             `),
       sumHistorySince: this.db.prepare(`
                 SELECT COALESCE(SUM(gained), 0) as gained, COALESCE(SUM(points), 0) as points
@@ -446,6 +469,31 @@ class Store {
 
     const ageMs = Date.now() - Date.parse(running.startTs);
     if (!Number.isFinite(ageMs) || ageMs < ZERO_START_STALE_MS) return;
+
+    this._closeRunningRun(running, "stalled", new Date().toISOString());
+  }
+
+  // General safety net for a run that hung PARTWAY through - covers the
+  // zero-start case too (no activity since start is a special case of "no
+  // activity for a long time"), but is deliberately much more generous
+  // (RUN_NO_ACTIVITY_STALE_MS) since a run that already has accounts in
+  // flight can have legitimate bursty gaps that a brand-new run can't.
+  //
+  // Explicitly does NOT fire while the run is waiting on a still-open
+  // manual login-approval prompt - that can legitimately take a long time
+  // (this is exactly why RUN_STALE_BACKSTOP_MS is 20h instead of something
+  // short), and is a real, expected reason for silence rather than a hang.
+  _tryCloseStaleNoActivityRun() {
+    const running = this.stmts.findRunningRun.get();
+    if (!running) return;
+
+    const lastActivity = this.stmts.lastActivitySince.get(running.startTs);
+    const lastTs = (lastActivity && lastActivity.ts) || running.startTs;
+    const ageMs = Date.now() - Date.parse(lastTs);
+    if (!Number.isFinite(ageMs) || ageMs < RUN_NO_ACTIVITY_STALE_MS) return;
+
+    const pendingApproval = this.stmts.lastLoginPromptKindSince.get(running.startTs);
+    if (pendingApproval && pendingApproval.kind === "login-number") return;
 
     this._closeRunningRun(running, "stalled", new Date().toISOString());
   }
