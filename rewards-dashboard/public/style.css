@@ -1674,6 +1674,33 @@ tbody tr:hover {
   gap: 0.6rem;
 }
 
+/* Batch-run selector - mirrors run-progress-box's narrow panel treatment
+   (same background/border/shadow, tighter padding) with a header row that
+   puts the title on the left and controls on the right, same as each
+   account panel below it does with its own Run only button. */
+.batch-select-box {
+  padding: 0.65rem 1rem;
+}
+.batch-select-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.5rem 0.75rem;
+}
+.batch-select-title {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--text);
+}
+.batch-select-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
 .acc-detail-groups {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));

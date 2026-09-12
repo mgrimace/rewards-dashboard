@@ -389,13 +389,18 @@ export default {
     context = ctx;
     root.innerHTML = `
       <p class="notice notice--warn" id="accountsError" hidden></p>
-      <div class="toolbar" id="accountsBatchToolbar">
-          <label class="check">
-              <input type="checkbox" id="accountsSelectAll">
-              <span>Select all</span>
-          </label>
-          <span class="hint" id="accountsSelectedCount">0/0 selected</span>
-          <button type="button" class="btn btn-primary btn-small" id="accountsRunSelected" disabled>Run selected</button>
+      <div class="panel batch-select-box" id="accountsBatchToolbar">
+          <div class="batch-select-header">
+              <h2 class="batch-select-title">Batch run</h2>
+              <div class="batch-select-controls">
+                  <label class="check">
+                      <input type="checkbox" id="accountsSelectAll">
+                      <span>Select all</span>
+                  </label>
+                  <span class="hint" id="accountsSelectedCount">0/0 selected</span>
+                  <button type="button" class="btn btn-primary btn-small" id="accountsRunSelected" disabled>Run selected</button>
+              </div>
+          </div>
       </div>
       <div id="accountsContainer">
           <p class="empty-note" style="padding:1.25rem">Loading accounts configuration details&hellip;</p>
