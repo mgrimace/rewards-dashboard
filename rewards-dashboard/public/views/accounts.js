@@ -7,6 +7,8 @@ let mounted = false;
 let context = null;
 
 const launching = new Set();
+const selectedForBatch = new Set();
+let batchRunning = false;
 
 const SOURCE_LABELS = {
   search: "Search",
@@ -48,6 +50,68 @@ async function runAccount(account) {
     launching.delete(account.index);
     render(rootEl);
   }
+}
+
+function selectableAccounts() {
+  return (accountsPayload?.accounts || []).filter(
+    (a) => a.configured && Number.isInteger(a.index),
+  );
+}
+
+async function runSelectedAccounts() {
+  if (!context) return;
+  const configured = selectableAccounts();
+  const selectedIndexes = configured
+    .filter((a) => selectedForBatch.has(a.index))
+    .map((a) => a.index);
+  if (!selectedIndexes.length) return;
+
+  // The control API only accepts an exclusion list, so a "run these x of y"
+  // request is expressed as "exclude everyone else".
+  const excludedAccountIndexes = configured
+    .filter((a) => !selectedForBatch.has(a.index))
+    .map((a) => a.index);
+
+  batchRunning = true;
+  render(rootEl);
+  try {
+    await context.api.control("start", { excludedAccountIndexes });
+    context.toast(
+      `Started ${selectedIndexes.length}/${configured.length} selected accounts.`,
+      "success",
+    );
+    context.invalidate();
+    await context.refresh();
+  } catch (error) {
+    context.toast(error.message, error.status === 409 ? "warn" : "error");
+  } finally {
+    batchRunning = false;
+    render(rootEl);
+  }
+}
+
+function renderBatchToolbar(root) {
+  const configured = selectableAccounts();
+  const configuredIndexes = new Set(configured.map((a) => a.index));
+  // Drop selections for accounts that disappeared (e.g. .env edited).
+  for (const index of [...selectedForBatch]) {
+    if (!configuredIndexes.has(index)) selectedForBatch.delete(index);
+  }
+
+  const { usable, running } = controlState();
+  const count = selectedForBatch.size;
+  const total = configured.length;
+
+  U.$("#accountsSelectedCount", root).textContent = `${count}/${total} selected`;
+
+  const allBtn = U.$("#accountsSelectAll", root);
+  allBtn.checked = total > 0 && count === total;
+  allBtn.indeterminate = count > 0 && count < total;
+  allBtn.disabled = total === 0;
+
+  const runBtn = U.$("#accountsRunSelected", root);
+  runBtn.disabled = !usable || running || batchRunning || count === 0;
+  runBtn.textContent = batchRunning ? "Starting\u2026" : "Run selected";
 }
 
 function earnableBadge(account) {
@@ -228,6 +292,14 @@ function renderAccountPanel(a, live) {
       } title="Run only ACCOUNT_${a.index}">${launching.has(a.index) ? "Starting\u2026" : "Run only"}</button>`
       : "";
 
+  const selectCheckbox =
+    a.configured && Number.isInteger(a.index)
+      ? `<label class="check acc-batch-select" title="Include ACCOUNT_${a.index} in a batch run">
+          <input type="checkbox" data-select-account="${a.index}" ${selectedForBatch.has(a.index) ? "checked" : ""}>
+          <span>Select</span>
+        </label>`
+      : "";
+
   const { cls: statusIconCls, icon: statusIcon, label: statusLabel } = statusIconParts(statusKey);
 
   const chips = [
@@ -248,6 +320,7 @@ function renderAccountPanel(a, live) {
             ${a.configured ? "" : '<span class="tag-mini">unconfigured</span>'}
             <span class="acc-detail-actions">
                 <span class="acc-status-pill">${U.statusPill(statusKey)}</span>
+                ${selectCheckbox}
                 ${runButton}
             </span>
         </div>
@@ -277,6 +350,7 @@ function render(root) {
 
   if (!accounts.length) {
     container.innerHTML = '<p class="empty-note" style="padding:1.25rem">No accounts configured or observed yet.</p>';
+    renderBatchToolbar(root);
     return;
   }
 
@@ -292,6 +366,17 @@ function render(root) {
       if (account) runAccount(account);
     }),
   );
+
+  container.querySelectorAll("input[data-select-account]").forEach((input) =>
+    input.addEventListener("change", () => {
+      const index = Number(input.dataset.selectAccount);
+      if (input.checked) selectedForBatch.add(index);
+      else selectedForBatch.delete(index);
+      renderBatchToolbar(root);
+    }),
+  );
+
+  renderBatchToolbar(root);
 }
 
 export default {
@@ -304,6 +389,14 @@ export default {
     context = ctx;
     root.innerHTML = `
       <p class="notice notice--warn" id="accountsError" hidden></p>
+      <div class="toolbar" id="accountsBatchToolbar">
+          <label class="check">
+              <input type="checkbox" id="accountsSelectAll">
+              <span>Select all</span>
+          </label>
+          <span class="hint" id="accountsSelectedCount">0/0 selected</span>
+          <button type="button" class="btn btn-primary btn-small" id="accountsRunSelected" disabled>Run selected</button>
+      </div>
       <div id="accountsContainer">
           <p class="empty-note" style="padding:1.25rem">Loading accounts configuration details&hellip;</p>
       </div>
@@ -311,6 +404,17 @@ export default {
       The control API exposes full local email addresses but never sends passwords, recovery addresses, TOTP secrets, or proxy credentials.</p>
     `;
     mounted = true;
+
+    U.$("#accountsSelectAll", root).addEventListener("change", (e) => {
+      const configured = selectableAccounts();
+      if (e.target.checked) configured.forEach((a) => selectedForBatch.add(a.index));
+      else selectedForBatch.clear();
+      render(root);
+    });
+
+    U.$("#accountsRunSelected", root).addEventListener("click", () => {
+      runSelectedAccounts();
+    });
   },
 
   async refresh(ctx) {
