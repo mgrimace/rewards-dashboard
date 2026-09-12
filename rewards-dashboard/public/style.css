@@ -1668,6 +1668,29 @@ tbody tr:hover {
   display: none;
 }
 
+/* Details caret - rotates from collapsed (▸) to expanded (▾); the details
+   panel below is toggled via its plain `hidden` attribute (see global
+   [hidden] rule), so no extra open/closed classes are needed. */
+.acc-detail-toggle {
+  appearance: none;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 0.7rem;
+  line-height: 1;
+  padding: 0.15rem;
+  margin-right: 0.15rem;
+  cursor: pointer;
+  transition: transform 0.12s ease;
+  flex-shrink: 0;
+}
+.acc-detail-toggle:hover {
+  color: var(--text);
+}
+.acc-detail-toggle[aria-expanded="true"] {
+  transform: rotate(90deg);
+}
+
 .acc-detail-actions {
   display: flex;
   align-items: center;

@@ -8,6 +8,7 @@ let context = null;
 
 const launching = new Set();
 const selectedForBatch = new Set();
+const expandedAccounts = new Set();
 let batchRunning = false;
 
 const SOURCE_LABELS = {
@@ -301,6 +302,8 @@ function renderAccountPanel(a, live) {
       : "";
 
   const { cls: statusIconCls, icon: statusIcon, label: statusLabel } = statusIconParts(statusKey);
+  const isExpanded = expandedAccounts.has(a.key);
+  const detailsId = `acc-details-${U.escapeAttr(a.key)}`;
 
   const chips = [
     protection
@@ -315,7 +318,10 @@ function renderAccountPanel(a, live) {
   return `
     <div class="panel account-detail-panel">
         <div class="panel-head">
-            <h2><span class="acc-status-icon ${statusIconCls}" role="img" aria-label="${U.escapeAttr(statusLabel)}" title="${U.escapeAttr(statusLabel)}">${statusIcon}</span>${U.escapeHtml(a.email)}</h2>
+            <h2>
+                <button type="button" class="acc-detail-toggle" data-toggle-details="${U.escapeAttr(a.key)}" aria-expanded="${isExpanded}" aria-controls="${detailsId}" title="${isExpanded ? "Collapse details" : "Expand details"}">\u25b8</button>
+                <span class="acc-status-icon ${statusIconCls}" role="img" aria-label="${U.escapeAttr(statusLabel)}" title="${U.escapeAttr(statusLabel)}">${statusIcon}</span>${U.escapeHtml(a.email)}
+            </h2>
             ${a.index != null ? `<span class="tag-mini acc-tag-account-id">ACCOUNT_${a.index}</span>` : ""}
             ${a.configured ? "" : '<span class="tag-mini">unconfigured</span>'}
             <span class="acc-detail-actions">
@@ -324,7 +330,7 @@ function renderAccountPanel(a, live) {
                 ${runButton}
             </span>
         </div>
-        <div class="panel-body">
+        <div class="panel-body" id="${detailsId}" ${isExpanded ? "" : "hidden"}>
             ${detailGroups(a, protection)}
         </div>
         ${chips ? `<div class="account-today-row">
@@ -373,6 +379,15 @@ function render(root) {
       if (input.checked) selectedForBatch.add(index);
       else selectedForBatch.delete(index);
       renderBatchToolbar(root);
+    }),
+  );
+
+  container.querySelectorAll("button[data-toggle-details]").forEach((btn) =>
+    btn.addEventListener("click", () => {
+      const key = btn.dataset.toggleDetails;
+      if (expandedAccounts.has(key)) expandedAccounts.delete(key);
+      else expandedAccounts.add(key);
+      render(root);
     }),
   );
 
