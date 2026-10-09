@@ -22,7 +22,7 @@ function render() {
 
   if (!entries.length) {
     list.innerHTML =
-      '<li class="empty-note">暂无错误捕获快照 — 尚未出现需要截屏的严重故障。快照功能需在脚本配置中启用 <code>errorDiagnostics</code>。</li>';
+      '<li class="empty-note">暂无错误快照 — 尚未出现严重到需要截图的错误。快照记录需要在配置中启用 <code>errorDiagnostics</code>。</li>';
     return;
   }
 
@@ -30,9 +30,9 @@ function render() {
     .map((entry) => {
       const isOpen = open === entry.name;
       const badges = [
-        entry.hasScreenshot ? '<span class="tag-mini">截屏快照</span>' : "",
-        entry.hasError ? '<span class="tag-mini">错误日志</span>' : "",
-        entry.hasHtml ? '<span class="tag-mini">页面转储</span>' : "",
+        entry.hasScreenshot ? '<span class="tag-mini">screenshot</span>' : "",
+        entry.hasError ? '<span class="tag-mini">error.txt</span>' : "",
+        entry.hasHtml ? '<span class="tag-mini">dump.html</span>' : "",
       ].join("");
 
       const firstLine =
@@ -43,7 +43,7 @@ function render() {
         ? `<div class="diag-body">
                     ${entry.hasError
           ? `<pre class="diag-pre">${U.escapeHtml(entry.error || "")}</pre>`
-          : '<p class="empty-note">本次快照无 error.txt 错误记录。</p>'
+          : '<p class="empty-note">本次快照中没有 error.txt。</p>'
         }
                     ${entry.hasScreenshot
           ? `<a class="diag-shot" href="${U.escapeAttr(diagUrl(entry.name, "screenshot.png"))}" target="_blank" rel="noopener">
@@ -87,7 +87,7 @@ function diagUrl(name, file) {
 async function clearSession(email) {
   if (!context) return;
   const confirmed = window.confirm(
-    `Clear stored sessions for ${email}?\n\nThis logs the account out immediately \u2014 it will need to sign back in (and re-approve 2FA if used) on its next run.`,
+    `确定要清除 ${email} 的持久化会话吗？\n\n这将立即登出该账号 — 下次运行时需要重新登录（如果开启了两步验证还需要重新验证）。`,
   );
   if (!confirmed) return;
 
@@ -95,7 +95,7 @@ async function clearSession(email) {
   renderSessions();
   try {
     await context.api.clearSession(email);
-    context.toast(`已清除 ${email} 的登录会话。`, "success");
+    context.toast(`已成功清除 ${email} 的会话。`, "success");
     context.invalidate();
     await context.refresh();
   } catch (e) {
@@ -144,14 +144,14 @@ function renderSessions() {
       );
       const meta = hasSessions
         ? `${sessions.map((s) => U.escapeHtml(s.platform)).join(" \u00b7 ")} \u00b7 updated ${U.escapeHtml(U.fmtRelative(latest))}`
-        : "暂无保存的会话";
+        : "暂无存储的会话";
 
       const isClearing = clearing.has(a.email);
       const disabled = !hasSessions || running || isClearing;
       const title = running
-        ? "脚本必须处于空闲状态才能清除会话"
+        ? "The bot must be idle to clear a session"
         : !hasSessions
-          ? "该账号尚未保存任何会话数据"
+          ? "Nothing stored for this account yet"
           : "";
 
       return `<div class="session-card">
@@ -161,7 +161,7 @@ function renderSessions() {
                 </div>
                 <button type="button" class="btn btn-danger btn-small" data-clear-session="${U.escapeAttr(a.email)}"
                     ${disabled ? "disabled" : ""} ${title ? `title="${U.escapeAttr(title)}"` : ""}>
-                    ${isClearing ? "正在清除…" : "清除会话"}
+                    ${isClearing ? "Clearing\u2026" : "Clear sessions"}
                 </button>
             </div>`;
     })
@@ -176,7 +176,7 @@ function renderSessions() {
 
 export default {
   id: "diagnostics",
-  label: "诊断工具",
+  label: "诊断",
   interval: 30000,
 
   mount(root, ctx) {
@@ -185,8 +185,8 @@ export default {
     root.innerHTML = `
             <section class="panel" aria-labelledby="sessions-heading">
                 <div class="panel-head">
-                    <h2 id="sessions-heading">浏览器会话与登录状态</h2>
-                    <span class="panel-sub">清除会话通常可解决绝大多数登录与验证异常</span>
+                    <h2 id="sessions-heading">会话管理</h2>
+                    <span class="panel-sub">清除会话可以解决绝大多数常见的登录和卡死问题</span>
                 </div>
                 <p class="notice notice--warn">
                     Clearing a session logs that account out immediately. It will need to sign in again
@@ -200,7 +200,7 @@ export default {
 
             <section class="panel" aria-labelledby="diag-heading">
                 <div class="panel-head">
-                    <h2 id="diag-heading">错误捕获与诊断记录</h2>
+                    <h2 id="diag-heading">错误排查快照</h2>
                     <span class="panel-sub" id="diagMeta"></span>
                     <button type="button" id="diagRefresh" class="btn btn-small">刷新</button>
                 </div>

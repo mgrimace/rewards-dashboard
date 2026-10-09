@@ -1,16 +1,16 @@
 import * as U from "../util.js";
 
 const PRESETS = [
-  ["每天早上 09:00", "0 9 * * *"],
-  ["每天两次 (09:00, 21:00)", "0 9,21 * * *"],
-  ["每 6 小时一次", "0 */6 * * *"],
-  ["每 12 小时一次", "0 */12 * * *"],
-  ["工作日早上 08:00", "0 8 * * 1-5"],
+  ["Daily at 09:00", "0 9 * * *"],
+  ["Twice daily (09:00, 21:00)", "0 9,21 * * *"],
+  ["每 6 小时", "0 */6 * * *"],
+  ["Every 12 hours", "0 */12 * * *"],
+  ["Weekdays at 08:00", "0 8 * * 1-5"],
 ];
 
 const TARGET_LABEL = {
-  local: "本地网页调度 (Dashboard)",
-  remote: "容器内置调度 (Docker Cron)",
+  local: "This dashboard",
+  remote: "Bot container (Docker cron)",
 };
 
 let rootEl = null;
@@ -105,7 +105,7 @@ function paint() {
   U.$("#schedNext", rootEl).textContent = current.enabled
     ? current.nextRunAt
       ? `${U.fmtDateTime(current.nextRunAt)} (${U.fmtRelative(current.nextRunAt)})`
-      : "未设置定时任务"
+      : "未计划"
     : "已禁用";
 
   if (target === "local") {
@@ -116,13 +116,13 @@ function paint() {
   } else {
     U.$("#schedLast", rootEl).textContent = "\u2013";
     U.$("#schedResult", rootEl).textContent =
-      "不在此处跟踪 — 请查看“运行记录”标签页。";
+      "此处不记录 — 请查看“运行记录”标签页。";
   }
 
   const excluded = current.excludedAccountIndexes || [];
   U.$("#schedExcluded", rootEl).textContent = excluded.length
     ? excluded.map((index) => `ACCOUNT_${index}`).join(", ")
-    : "None";
+    : "无";
 
   const tzLabel = U.$("#schedTz", rootEl);
   if (target === "local") {
@@ -147,7 +147,7 @@ function renderAccountExclusions() {
   if (!host) return;
   if (!accountOptions.length) {
     host.innerHTML =
-      '<p class="empty-note">暂无已配置的账号。</p>';
+      '<p class="empty-note">暂无可用的配置账号。</p>';
     return;
   }
   const excluded = new Set(current?.excludedAccountIndexes || []);
@@ -155,7 +155,7 @@ function renderAccountExclusions() {
     .map(
       (account) => `<label class="check check--row">
                 <input type="checkbox" data-exclude-account="${account.index}" ${excluded.has(account.index) ? "checked" : ""}>
-                <span>排除 <strong>ACCOUNT_${account.index}</strong> \u2014 ${U.escapeHtml(account.email)}</span>
+                <span>Exclude <strong>ACCOUNT_${account.index}</strong> \u2014 ${U.escapeHtml(account.email)}</span>
             </label>`,
     )
     .join("");
@@ -167,7 +167,7 @@ function renderAccountExclusions() {
 async function describe(expr) {
   const out = U.$("#schedDesc", rootEl);
   if (!expr) {
-    out.textContent = "请输入标准的 5 位 Cron 表达式。";
+    out.textContent = "请输入标准的 5 字段 Cron 表达式。";
     out.className = "sched-desc";
     return;
   }
@@ -185,7 +185,7 @@ async function describe(expr) {
 
 export default {
   id: "schedule",
-  label: "定时调度",
+  label: "计划",
   interval: 30000,
 
   mount(root, ctx) {
@@ -194,42 +194,42 @@ export default {
             <section class="panel" aria-labelledby="sched-heading">
                 <div class="panel-head">
                     <h2 id="sched-heading">定时自动运行</h2>
-                    <span class="panel-sub">提供两种调度模式 &mdash; 请选择符合您环境的方案</span>
+                    <span class="panel-sub">Two schedulers are available &mdash; pick the one that fits your setup</span>
                 </div>
 
-                <div class="seg" id="schedTargetToggle" role="radiogroup" aria-label="调度执行位置">
+                <div class="seg" id="schedTargetToggle" role="radiogroup" aria-label="定时调度器位置">
                     <button type="button" class="seg-btn seg-btn--active" id="schedTargetLocal" data-target="local" aria-pressed="true">${U.escapeHtml(TARGET_LABEL.local)}</button>
                     <button type="button" class="seg-btn" id="schedTargetRemote" data-target="remote" aria-pressed="false" hidden>${U.escapeHtml(TARGET_LABEL.remote)}</button>
                 </div>
                 <p class="hint" id="schedTargetNote"></p>
                 <p class="empty-note chart-empty" id="schedDualWarning" hidden>
-                    &#9888; Both schedulers are currently enabled &mdash; runs may double-fire. Disable one of them below.
+                    &#9888; 两个调度器当前均已启用 &mdash; 任务可能会重复触发。请在下方禁用其中一个调度器。
                 </p>
 
                 <div class="form" id="schedFormBody">
                     <label class="check check--row">
                         <input type="checkbox" id="schedEnabled">
-                        <span><strong>启用定时调度</strong> &mdash; 按照下方计划自动执行</span>
+                        <span><strong>启用</strong> &mdash; 按照下方计划定时触发运行</span>
                     </label>
 
                     <div id="schedMisfireGroup">
                         <label class="field">
-                            <span>若控制台离线期间错过了预定时间</span>
+                            <span>当控制台离线期间错失了计划运行时</span>
                             <select id="schedMisfire" class="input">
                                 <option value="skip">直接跳过</option>
-                                <option value="run-on-startup">启动后立即补跑一次</option>
-                                <option value="grace-period">仅在宽限期内补跑</option>
+                                <option value="run-on-startup">开机/启动后立即补跑一次</option>
+                                <option value="grace-period">仅在容限期内补跑</option>
                             </select>
                         </label>
 
                         <label class="field" id="schedGraceField" hidden>
-                            <span>补跑宽限期（分钟）</span>
+                            <span>容限时间 (分钟)</span>
                             <input id="schedGrace" class="input" type="number" min="1" max="1440" value="60">
                         </label>
                     </div>
 
                     <fieldset class="field">
-                        <legend>排除的账号</legend>
+                        <legend>排除账号</legend>
                         <div id="schedAccounts" class="schedule-account-list">
                             <p class="empty-note">正在加载已配置的账号&hellip;</p>
                         </div>
@@ -251,7 +251,7 @@ export default {
 
                     <label class="check check--row">
                         <input type="checkbox" id="schedSkip">
-                        <span><strong>如已在运行则跳过</strong> &mdash; 避免在前次任务未结束时重复启动</span>
+                        <span><strong>若已在运行则跳过</strong> &mdash; 不在已有任务执行中重复启动新任务</span>
                     </label>
 
                     <div class="form-actions">
@@ -260,21 +260,20 @@ export default {
                     </div>
                 </div>
                 <p class="empty-note" id="schedUnavailable" hidden>
-                    无法读取当前调度器状态。页面将自动尝试刷新 — 若此问题持续出现，请检查脚本的控制 API 是否可达，并在需要在此修改计划时确认已设置 API_ALLOW_SCHEDULE_WRITE=true。
+                    无法读取此调度器的当前状态。面板将自动重试刷新 &mdash; 若此问题持续出现，请检查脚本机器人的控制 API 是否可达，如需在此编辑请确认已配置 API_ALLOW_SCHEDULE_WRITE。
                 </p>
             </section>
 
             <section class="panel" aria-labelledby="sched-state-heading">
-                <div class="panel-head"><h2 id="sched-state-heading">当前调度状态</h2></div>
+                <div class="panel-head"><h2 id="sched-state-heading">当前状态</h2></div>
                 <dl class="kv">
-                    <div><dt>下次运行时间</dt><dd id="schedNext">\u2013</dd></div>
-                    <div><dt>上次触发时间</dt><dd id="schedLast">\u2013</dd></div>
-                    <div><dt>上次运行结果</dt><dd id="schedResult">\u2013</dd></div>
-                    <div><dt>排除的账号</dt><dd id="schedExcluded">\u2013</dd></div>
-                    <div><dt>时区</dt><dd id="schedTz">\u2013</dd></div>
+                    <div><dt>下次运行</dt><dd id="schedNext">\u2013</dd></div>
+                    <div><dt>上次触发</dt><dd id="schedLast">\u2013</dd></div>
+                    <div><dt>上次结果</dt><dd id="schedResult">\u2013</dd></div>
+                    <div><dt>排除账号</dt><dd id="schedExcluded">\u2013</dd></div>
+                    <div><dt>调度时区</dt><dd id="schedTz">\u2013</dd></div>
                 </dl>
-                <p class="hint">时间根据调度器自身所在的时区计算（控制台：其容器的 <code>TZ</code>；
-                脚本容器：其自身设定的 <code>TZ</code>）。如果调度器宿主机曾离线，本地调度器将在启动时应用其补跑策略，而容器定时任务在离线时则直接跳过。</p>
+                <p class="hint">时间按调度器自身的环境时区计算（控制台面板: 环境变量 <code>TZ</code>; 脚本容器: 容器自身 <code>TZ</code>）。如果调度器宿主机此前处于离线状态，本地调度器将在启动时应用错失执行策略 &mdash; 容器调度器则直接忽略错过的执行。</p>
             </section>`;
 
     const cronInput = U.$("#schedCron", root);
@@ -309,7 +308,7 @@ export default {
       if (next === target) return;
       if (
         dirty &&
-        !window.confirm("放弃未保存的更改并切换调度器吗？")
+        !window.confirm("放弃未保存的修改并切换调度器？")
       ) {
         return;
       }
@@ -326,7 +325,7 @@ export default {
         accountOptions.length &&
         patch.excludedAccountIndexes.length >= accountOptions.length
       ) {
-        U.toast("定时运行必须至少包含一个账号。", "error");
+        U.toast("计划任务必须至少包含一个账号。", "error");
         return;
       }
       btn.disabled = true;

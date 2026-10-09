@@ -18,17 +18,17 @@ const deleteArmed = new Set();
 const deleting = new Set();
 
 const SOURCE_LABELS = {
-  search: "搜索任务",
-  bonus: "加成搜索",
-  read: "阅读赚取",
-  checkIn: "每日签到",
-  claimReward: "领取奖励",
-  claimBonus: "领取加成",
-  urlReward: "活动链接",
-  visualSearch: "视觉搜索",
-  appReward: "App 任务",
-  punchcard: "打卡任务",
-  searchOnBing: "Bing 搜索活动",
+  search: "Search",
+  bonus: "Bonus search",
+  read: "Read",
+  checkIn: "Check-in",
+  claimReward: "Claim reward",
+  claimBonus: "Claim bonus",
+  urlReward: "URL reward",
+  visualSearch: "Visual search",
+  appReward: "App reward",
+  punchcard: "Punchcard",
+  searchOnBing: "Search activity",
 };
 
 function controlState() {
@@ -77,7 +77,7 @@ async function deleteAccount(account) {
   render(rootEl);
   try {
     await context.api.deleteDashboardAccount(account.email);
-    context.toast(`已从仪表盘移除 ${account.email}。`, "success");
+    context.toast(`已从控制面板移除 ${account.email}。`, "success");
     context.invalidate();
     await context.refresh();
   } catch (error) {
@@ -132,7 +132,7 @@ function renderBatchToolbar(root) {
   const count = selectedForBatch.size;
   const total = configured.length;
 
-  U.$("#accountsSelectedCount", root).textContent = `${count}/${total} selected`;
+  U.$("#accountsSelectedCount", root).textContent = `已选择 ${count}/${total}`;
 
   const allBtn = U.$("#accountsSelectAll", root);
   allBtn.checked = total > 0 && count === total;
@@ -141,7 +141,7 @@ function renderBatchToolbar(root) {
 
   const runBtn = U.$("#accountsRunSelected", root);
   runBtn.disabled = !usable || running || batchRunning || count === 0;
-  runBtn.textContent = batchRunning ? "Starting\u2026" : "Run selected";
+  runBtn.textContent = batchRunning ? "启动中…" : "运行选中账号";
 }
 
 function earnableBadge(account) {
@@ -150,7 +150,7 @@ function earnableBadge(account) {
     ? Object.values(earnable).reduce((sum, points) => sum + (Number(points) || 0), 0)
     : 0;
   if (total <= 0) return "";
-  return `<span class="point-source point-source--target"><strong>可赚积分</strong> ${U.escapeHtml(U.fmtNumber(total))}</span>`;
+  return `<span class="point-source point-source--target"><strong>Earnable</strong> ${U.escapeHtml(U.fmtNumber(total))}</span>`;
 }
 
 // Only sources that actually earned something today — ten "+0" chips per
@@ -177,7 +177,7 @@ function protectionPresentation(account) {
   const state = account.streakProtectionEnabled ? "On" : "Off";
   const streak =
     account.streakCounter == null
-      ? "连击信息不可用"
+      ? "streak unavailable"
       : `${U.fmtNumber(account.streakCounter)} day${account.streakCounter === 1 ? "" : "s"} current streak`;
 
   return {
@@ -225,18 +225,18 @@ function detailGroups(a, protection) {
   ]);
 
   groups.push([
-    "连击与保护状态",
+    "Streak &amp; protection",
     [
-      ["连续成功运行", `${a.successStreak} run${a.successStreak === 1 ? "" : "s"}`],
+      ["Success streak", `${a.successStreak} run${a.successStreak === 1 ? "" : "s"}`],
       ...(protection
         ? [
           [
-            "当前连续签到",
+            "Current streak",
             a.streakCounter == null
               ? "Unavailable"
               : `${U.fmtNumber(a.streakCounter)} day${a.streakCounter === 1 ? "" : "s"}`,
           ],
-          ["连击保护", protection.state === "On" ? "已开启" : "未开启"],
+          ["Streak protection", protection.state === "On" ? "Enabled" : "Disabled"],
           [
             "Protection days remaining",
             a.streakProtectionRemainingDays == null
@@ -244,7 +244,7 @@ function detailGroups(a, protection) {
               : `${a.streakProtectionRemainingDays} day${a.streakProtectionRemainingDays === 1 ? "" : "s"}`,
           ],
           ...(a.streakProtectionUpdatedAt
-            ? [["保护状态检查时间", U.fmtRelative(a.streakProtectionUpdatedAt)]]
+            ? [["Protection status checked", U.fmtRelative(a.streakProtectionUpdatedAt)]]
             : []),
         ]
         : []),
@@ -255,7 +255,7 @@ function detailGroups(a, protection) {
     "Run history",
     [
       ["Runs recorded by the API", U.fmtNumber(a.apiRuns)],
-      ["Points collected (API history)", U.fmtSigned(a.apiTotalCollected)],
+      ["已收集积分 (API 历史)", `${U.fmtSigned(a.apiTotalCollected)} 积分`],
       ["Last duration", U.fmtDuration(a.lastDurationSec)],
       ["History points loaded", U.fmtNumber(a.historyCount)],
     ],
@@ -279,7 +279,7 @@ function statusIconParts(statusKey) {
   switch (statusKey) {
     case "success":
     case "done":
-      return { cls: "stat-icon-check", icon: "\u2713", label: "成功" };
+      return { cls: "stat-icon-check", icon: "\u2713", label: "Success" };
     case "running":
     case "starting":
     case "stopping":
@@ -292,7 +292,7 @@ function statusIconParts(statusKey) {
     case "stopped":
       return { cls: "stat-icon-alert icon-alert-active", icon: "!", label: U.pillParts(statusKey).label };
     default:
-      return { cls: "stat-icon-idle", icon: "\u2013", label: "空闲" };
+      return { cls: "stat-icon-idle", icon: "\u2013", label: "Idle" };
   }
 }
 
@@ -319,14 +319,14 @@ function renderAccountPanel(a, live) {
   const runButton =
     a.configured && Number.isInteger(a.index)
       ? `<button type="button" class="btn btn-primary btn-small" data-run-account="${a.index}" ${!usable || running || launching.has(a.index) ? "disabled" : ""
-      } title="仅运行 ACCOUNT_${a.index}">${launching.has(a.index) ? "正在启动…" : "仅运行此账号"}</button>`
+      } title="仅运行 ACCOUNT_${a.index}">${launching.has(a.index) ? "启动中…" : "仅运行此账号"}</button>`
       : "";
 
   const selectCheckbox =
     a.configured && Number.isInteger(a.index)
-      ? `<label class="check acc-batch-select" title="勾选 ACCOUNT_${a.index} 加入批量运行">
+      ? `<label class="check acc-batch-select" title="在批量运行中包含 ACCOUNT_${a.index}">
           <input type="checkbox" data-select-account="${a.index}" ${selectedForBatch.has(a.index) ? "checked" : ""}>
-          <span>选择</span>
+          <span>Select</span>
         </label>`
       : "";
 
@@ -339,15 +339,15 @@ function renderAccountPanel(a, live) {
   const deleteButton = deleteArmed.has(a.key)
     ? `<span class="acc-delete-confirm">
         <button type="button" class="btn btn-small" data-cancel-delete="${U.escapeAttr(a.key)}" ${isDeleting ? "disabled" : ""}>取消</button>
-        <button type="button" class="btn btn-danger btn-small" data-confirm-delete="${U.escapeAttr(a.key)}" ${isDeleting ? "disabled" : ""} title="永久从控制台删除该账号及其历史数据">
-            ${isDeleting ? "正在删除…" : "确认删除?"}
+        <button type="button" class="btn btn-danger btn-small" data-confirm-delete="${U.escapeAttr(a.key)}" ${isDeleting ? "disabled" : ""} title="Permanently remove this account and its history from the dashboard">
+            ${isDeleting ? "Removing\u2026" : "Are you sure?"}
         </button>
       </span>`
-    : `<button type="button" class="btn btn-danger btn-small" data-arm-delete="${U.escapeAttr(a.key)}" ${deleteBlocked ? "disabled" : ""} title="${deleteBlocked ? "账号必须处于空闲状态才能删除" : "从控制台移除此账号及其历史记录"}">删除</button>`;
+    : `<button type="button" class="btn btn-danger btn-small" data-arm-delete="${U.escapeAttr(a.key)}" ${deleteBlocked ? "disabled" : ""} title="${deleteBlocked ? "账号必须处于空闲状态才能删除" : "从仪表盘移除此账号及其历史记录"}">删除</button>`;
 
   const chips = [
     protection
-      ? `<span class="pill ${protection.pillClass}" title="${U.escapeAttr(protection.streak)}; 连签保护状态：${protection.state === "ACTIVE" ? "已激活" : (protection.state === "BLOCKED" ? "受限" : protection.state)}; ${U.escapeAttr(protection.days)}">连签保护 ${protection.state === "ACTIVE" ? "已开启" : (protection.state === "BLOCKED" ? "受限" : protection.state)} \u00b7 ${a.streakProtectionRemainingDays == null ? "天数未知" : `剩余 ${a.streakProtectionRemainingDays} 天`}</span>`
+      ? `<span class="pill ${protection.pillClass}" title="${U.escapeAttr(protection.streak)}; streak protection is ${protection.state.toLowerCase()}; ${U.escapeAttr(protection.days)}">Protection ${protection.state} \u00b7 ${a.streakProtectionRemainingDays == null ? "days unavailable" : `${a.streakProtectionRemainingDays} day${a.streakProtectionRemainingDays === 1 ? "" : "s"} left`}</span>`
       : "",
     earnableBadge(live || {}),
     sourceBreakdown(live || {}),
@@ -359,11 +359,11 @@ function renderAccountPanel(a, live) {
     <div class="panel account-detail-panel">
         <div class="panel-head">
             <h2>
-                <button type="button" class="acc-detail-toggle" data-toggle-details="${U.escapeAttr(a.key)}" aria-expanded="${isExpanded}" aria-controls="${detailsId}" title="${isExpanded ? "折叠详情" : "展开详情"}">\u25b8</button>
+                <button type="button" class="acc-detail-toggle" data-toggle-details="${U.escapeAttr(a.key)}" aria-expanded="${isExpanded}" aria-controls="${detailsId}" title="${isExpanded ? "Collapse details" : "Expand details"}">\u25b8</button>
                 <span class="acc-status-icon ${statusIconCls}" role="img" aria-label="${U.escapeAttr(statusLabel)}" title="${U.escapeAttr(statusLabel)}">${statusIcon}</span>${U.escapeHtml(a.email)}
             </h2>
             ${a.index != null ? `<span class="tag-mini acc-tag-account-id">ACCOUNT_${a.index}</span>` : ""}
-            ${a.configured ? "" : '<span class="tag-mini">未配置</span>'}
+            ${a.configured ? "" : '<span class="tag-mini">unconfigured</span>'}
             <span class="acc-detail-actions">
                 <span class="acc-status-pill">${U.statusPill(statusKey)}</span>
                 ${selectCheckbox}
@@ -396,7 +396,7 @@ function render(root) {
   }
 
   if (!accounts.length) {
-    container.innerHTML = '<p class="empty-note" style="padding:1.25rem">暂无已配置或已记录的账号。</p>';
+    container.innerHTML = '<p class="empty-note" style="padding:1.25rem">尚未配置或检测到任何账号。</p>';
     renderBatchToolbar(root);
     return;
   }
@@ -459,7 +459,7 @@ function render(root) {
 
 export default {
   id: "accounts",
-  label: "账号管理",
+  label: "账号",
   interval: 10000,
 
   mount(root, ctx) {
@@ -475,7 +475,7 @@ export default {
                       <input type="checkbox" id="accountsSelectAll">
                       <span>全选</span>
                   </label>
-                  <span class="hint" id="accountsSelectedCount">已选 0/0</span>
+                  <span class="hint" id="accountsSelectedCount">0/0 selected</span>
                   <button type="button" class="btn btn-primary btn-small" id="accountsRunSelected" disabled>运行选中账号</button>
               </div>
           </div>
@@ -483,8 +483,8 @@ export default {
       <div id="accountsContainer">
           <p class="empty-note" style="padding:1.25rem">正在加载账号配置详情&hellip;</p>
       </div>
-      <p class="hint" style="margin-top: 1.5rem;">账号在脚本的 <code>.env</code> 文件中配置（如 <code>ACCOUNT_N_*</code>）。
-      控制 API 仅展示账号邮箱地址，绝不会传输密码、备用邮箱、TOTP 密钥或代理凭据。</p>
+      <p class="hint" style="margin-top: 1.5rem;">Accounts are configured in the bot&rsquo;s <code>.env</code> (<code>ACCOUNT_N_*</code>).
+      The control API exposes full local email addresses but never sends passwords, recovery addresses, TOTP secrets, or proxy credentials.</p>
     `;
     mounted = true;
 

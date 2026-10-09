@@ -302,7 +302,7 @@ const PILLS = {
   running: ["pill-running", "运行中"],
   starting: ["pill-running", "启动中"],
   stopping: ["pill-warn", "停止中"],
-  pending: ["pill-pending", "Pending"],
+  pending: ["pill-pending", "等待中"],
   idle: ["pill-idle", "空闲"],
 };
 

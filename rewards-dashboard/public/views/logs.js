@@ -47,7 +47,7 @@ function renderAll() {
   const visible = entries.filter(matches);
   box.innerHTML = visible.length
     ? visible.slice(-MAX_LINES).map(lineHtml).join("")
-    : '<p class="empty-note">没有符合当前过滤条件的日志。</p>';
+    : '<p class="empty-note">没有匹配当前过滤条件的日志。</p>';
   if (autoscroll) box.scrollTop = box.scrollHeight;
   updateMeta();
 }
@@ -58,8 +58,8 @@ function updateMeta() {
   const btn = U.$("#logPause", rootEl);
   btn.textContent = paused
     ? pendingWhilePaused
-      ? `继续 (${pendingWhilePaused} 条新日志)`
-      : "继续"
+      ? `恢复 (${pendingWhilePaused} 条新日志)`
+      : "恢复"
     : "暂停";
   btn.classList.toggle("btn-primary", paused);
 }
@@ -117,7 +117,7 @@ function download() {
 
 export default {
   id: "logs",
-  label: "实时日志",
+  label: "日志",
   interval: 0, // live — nothing to poll
 
   mount(root, ctx) {
@@ -126,22 +126,22 @@ export default {
             <section class="panel" aria-labelledby="logs-heading">
                 <div class="panel-head">
                     <h2 id="logs-heading">实时运行日志</h2>
-                    <span class="panel-sub" id="logCount">已缓冲 0 行日志</span>
+                    <span class="panel-sub" id="logCount">0 lines buffered</span>
                 </div>
 
                 <div class="toolbar">
                     <label class="field field--inline">
-                        <span>日志级别</span>
+                        <span>级别</span>
                         <select id="logLevel" class="input">
-                            <option value="all">全部</option>
-                            <option value="info">信息及以上</option>
-                            <option value="warn">警告及以上</option>
-                            <option value="error">仅错误</option>
+                            <option value="all">All</option>
+                            <option value="info">Info and up</option>
+                            <option value="warn">Warnings and up</option>
+                            <option value="error">Errors only</option>
                         </select>
                     </label>
                     <label class="field field--grow">
-                        <span class="visually-hidden">搜索</span>
-                        <input id="logSearch" class="input" type="search" placeholder="过滤日志关键字…" autocomplete="off">
+                        <span class="visually-hidden">Search</span>
+                        <input id="logSearch" class="input" type="search" placeholder="过滤日志行…" autocomplete="off">
                     </label>
                     <label class="check">
                         <input type="checkbox" id="logAutoscroll" checked>
@@ -150,11 +150,11 @@ export default {
                     <button type="button" id="logPause" class="btn">暂停</button>
                     <button type="button" id="logMore" class="btn">加载 2000 行</button>
                     <button type="button" id="logDownload" class="btn">下载日志</button>
-                    <button type="button" id="logClear" class="btn">清空日志</button>
+                    <button type="button" id="logClear" class="btn">清空</button>
                 </div>
 
                 <div class="log-box" id="logBox" tabindex="0" aria-live="off">
-                    <p class="empty-note">正在等待日志输出\u2026</p>
+                    <p class="empty-note">等待日志输出…</p>
                 </div>
             </section>`;
 
@@ -197,7 +197,7 @@ export default {
         for (const e of res.logs || []) addEntry(e, false);
         renderAll();
         U.toast(
-          `Buffer filled to ${entries.length.toLocaleString()} lines.`,
+          `已加载日志缓冲区至 ${entries.length.toLocaleString()} 行。`,
           "success",
         );
       } catch (e) {
