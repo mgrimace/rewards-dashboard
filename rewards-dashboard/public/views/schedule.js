@@ -105,8 +105,8 @@ function paint() {
   U.$("#schedNext", rootEl).textContent = current.enabled
     ? current.nextRunAt
       ? `${U.fmtDateTime(current.nextRunAt)} (${U.fmtRelative(current.nextRunAt)})`
-      : "Not scheduled"
-    : "Disabled";
+      : "未设置定时任务"
+    : "已禁用";
 
   if (target === "local") {
     U.$("#schedLast", rootEl).textContent = current.lastTriggeredAt
@@ -116,7 +116,7 @@ function paint() {
   } else {
     U.$("#schedLast", rootEl).textContent = "\u2013";
     U.$("#schedResult", rootEl).textContent =
-      "Not tracked here \u2014 see the Runs tab.";
+      "不在此处跟踪 — 请查看“运行记录”标签页。";
   }
 
   const excluded = current.excludedAccountIndexes || [];
@@ -147,7 +147,7 @@ function renderAccountExclusions() {
   if (!host) return;
   if (!accountOptions.length) {
     host.innerHTML =
-      '<p class="empty-note">No configured accounts are available.</p>';
+      '<p class="empty-note">暂无已配置的账号。</p>';
     return;
   }
   const excluded = new Set(current?.excludedAccountIndexes || []);
@@ -155,7 +155,7 @@ function renderAccountExclusions() {
     .map(
       (account) => `<label class="check check--row">
                 <input type="checkbox" data-exclude-account="${account.index}" ${excluded.has(account.index) ? "checked" : ""}>
-                <span>Exclude <strong>ACCOUNT_${account.index}</strong> \u2014 ${U.escapeHtml(account.email)}</span>
+                <span>排除 <strong>ACCOUNT_${account.index}</strong> \u2014 ${U.escapeHtml(account.email)}</span>
             </label>`,
     )
     .join("");
@@ -167,7 +167,7 @@ function renderAccountExclusions() {
 async function describe(expr) {
   const out = U.$("#schedDesc", rootEl);
   if (!expr) {
-    out.textContent = "Enter a 5-field cron expression.";
+    out.textContent = "请输入标准的 5 位 Cron 表达式。";
     out.className = "sched-desc";
     return;
   }
@@ -194,7 +194,7 @@ export default {
             <section class="panel" aria-labelledby="sched-heading">
                 <div class="panel-head">
                     <h2 id="sched-heading">定时自动运行</h2>
-                    <span class="panel-sub">Two schedulers are available &mdash; pick the one that fits your setup</span>
+                    <span class="panel-sub">提供两种调度模式 &mdash; 请选择符合您环境的方案</span>
                 </div>
 
                 <div class="seg" id="schedTargetToggle" role="radiogroup" aria-label="调度执行位置">
@@ -209,34 +209,34 @@ export default {
                 <div class="form" id="schedFormBody">
                     <label class="check check--row">
                         <input type="checkbox" id="schedEnabled">
-                        <span><strong>Enabled</strong> &mdash; fire runs on the schedule below</span>
+                        <span><strong>启用定时调度</strong> &mdash; 按照下方计划自动执行</span>
                     </label>
 
                     <div id="schedMisfireGroup">
                         <label class="field">
-                            <span>If a run was missed while the dashboard was offline</span>
+                            <span>若控制台离线期间错过了预定时间</span>
                             <select id="schedMisfire" class="input">
-                                <option value="skip">Skip it</option>
-                                <option value="run-on-startup">Run once after startup</option>
-                                <option value="grace-period">Run only within a grace period</option>
+                                <option value="skip">直接跳过</option>
+                                <option value="run-on-startup">启动后立即补跑一次</option>
+                                <option value="grace-period">仅在宽限期内补跑</option>
                             </select>
                         </label>
 
                         <label class="field" id="schedGraceField" hidden>
-                            <span>Grace period in minutes</span>
+                            <span>补跑宽限期（分钟）</span>
                             <input id="schedGrace" class="input" type="number" min="1" max="1440" value="60">
                         </label>
                     </div>
 
                     <fieldset class="field">
-                        <legend>Excluded accounts</legend>
+                        <legend>排除的账号</legend>
                         <div id="schedAccounts" class="schedule-account-list">
-                            <p class="empty-note">Loading configured accounts&hellip;</p>
+                            <p class="empty-note">正在加载已配置的账号&hellip;</p>
                         </div>
                     </fieldset>
 
                     <label class="field">
-                        <span>Cron expression</span>
+                        <span>Cron 表达式</span>
                         <input id="schedCron" class="input input--mono" type="text" placeholder="0 9 * * *"
                                spellcheck="false" autocomplete="off" aria-describedby="schedDesc">
                     </label>
@@ -251,7 +251,7 @@ export default {
 
                     <label class="check check--row">
                         <input type="checkbox" id="schedSkip">
-                        <span><strong>Skip if already running</strong> &mdash; don&rsquo;t start a second run on top of one in progress</span>
+                        <span><strong>如已在运行则跳过</strong> &mdash; 避免在前次任务未结束时重复启动</span>
                     </label>
 
                     <div class="form-actions">
@@ -260,24 +260,21 @@ export default {
                     </div>
                 </div>
                 <p class="empty-note" id="schedUnavailable" hidden>
-                    Could not read this scheduler&rsquo;s current state. It will refresh automatically &mdash; if this
-                    persists, check that the bot's Control API is reachable and API_ALLOW_SCHEDULE_WRITE is set if you
-                    want to edit it from here.
+                    无法读取当前调度器状态。页面将自动尝试刷新 — 若此问题持续出现，请检查脚本的控制 API 是否可达，并在需要在此修改计划时确认已设置 API_ALLOW_SCHEDULE_WRITE=true。
                 </p>
             </section>
 
             <section class="panel" aria-labelledby="sched-state-heading">
                 <div class="panel-head"><h2 id="sched-state-heading">当前调度状态</h2></div>
                 <dl class="kv">
-                    <div><dt>Next run</dt><dd id="schedNext">\u2013</dd></div>
-                    <div><dt>Last triggered</dt><dd id="schedLast">\u2013</dd></div>
-                    <div><dt>Last result</dt><dd id="schedResult">\u2013</dd></div>
-                    <div><dt>Excluded accounts</dt><dd id="schedExcluded">\u2013</dd></div>
-                    <div><dt>Timezone</dt><dd id="schedTz">\u2013</dd></div>
+                    <div><dt>下次运行时间</dt><dd id="schedNext">\u2013</dd></div>
+                    <div><dt>上次触发时间</dt><dd id="schedLast">\u2013</dd></div>
+                    <div><dt>上次运行结果</dt><dd id="schedResult">\u2013</dd></div>
+                    <div><dt>排除的账号</dt><dd id="schedExcluded">\u2013</dd></div>
+                    <div><dt>时区</dt><dd id="schedTz">\u2013</dd></div>
                 </dl>
-                <p class="hint">Times are evaluated in the scheduler&rsquo;s own timezone (dashboard: its <code>TZ</code>;
-                bot container: its own <code>TZ</code>). If a scheduler's host was offline, the local scheduler applies
-                its missed-run policy at startup &mdash; the container scheduler simply didn&rsquo;t fire.</p>
+                <p class="hint">时间根据调度器自身所在的时区计算（控制台：其容器的 <code>TZ</code>；
+                脚本容器：其自身设定的 <code>TZ</code>）。如果调度器宿主机曾离线，本地调度器将在启动时应用其补跑策略，而容器定时任务在离线时则直接跳过。</p>
             </section>`;
 
     const cronInput = U.$("#schedCron", root);
@@ -312,7 +309,7 @@ export default {
       if (next === target) return;
       if (
         dirty &&
-        !window.confirm("Discard unsaved changes and switch scheduler?")
+        !window.confirm("放弃未保存的更改并切换调度器吗？")
       ) {
         return;
       }
@@ -329,7 +326,7 @@ export default {
         accountOptions.length &&
         patch.excludedAccountIndexes.length >= accountOptions.length
       ) {
-        U.toast("A scheduled run must include at least one account.", "error");
+        U.toast("定时运行必须至少包含一个账号。", "error");
         return;
       }
       btn.disabled = true;

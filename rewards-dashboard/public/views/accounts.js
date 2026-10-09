@@ -77,7 +77,7 @@ async function deleteAccount(account) {
   render(rootEl);
   try {
     await context.api.deleteDashboardAccount(account.email);
-    context.toast(`Removed ${account.email} from the dashboard.`, "success");
+    context.toast(`已从仪表盘移除 ${account.email}。`, "success");
     context.invalidate();
     await context.refresh();
   } catch (error) {
@@ -150,7 +150,7 @@ function earnableBadge(account) {
     ? Object.values(earnable).reduce((sum, points) => sum + (Number(points) || 0), 0)
     : 0;
   if (total <= 0) return "";
-  return `<span class="point-source point-source--target"><strong>Earnable</strong> ${U.escapeHtml(U.fmtNumber(total))}</span>`;
+  return `<span class="point-source point-source--target"><strong>可赚积分</strong> ${U.escapeHtml(U.fmtNumber(total))}</span>`;
 }
 
 // Only sources that actually earned something today — ten "+0" chips per
@@ -326,7 +326,7 @@ function renderAccountPanel(a, live) {
     a.configured && Number.isInteger(a.index)
       ? `<label class="check acc-batch-select" title="勾选 ACCOUNT_${a.index} 加入批量运行">
           <input type="checkbox" data-select-account="${a.index}" ${selectedForBatch.has(a.index) ? "checked" : ""}>
-          <span>Select</span>
+          <span>选择</span>
         </label>`
       : "";
 
@@ -343,11 +343,11 @@ function renderAccountPanel(a, live) {
             ${isDeleting ? "正在删除…" : "确认删除?"}
         </button>
       </span>`
-    : `<button type="button" class="btn btn-danger btn-small" data-arm-delete="${U.escapeAttr(a.key)}" ${deleteBlocked ? "disabled" : ""} title="${deleteBlocked ? "The account must be idle to delete it" : "Remove this account and its history from the dashboard"}">Delete</button>`;
+    : `<button type="button" class="btn btn-danger btn-small" data-arm-delete="${U.escapeAttr(a.key)}" ${deleteBlocked ? "disabled" : ""} title="${deleteBlocked ? "账号必须处于空闲状态才能删除" : "从控制台移除此账号及其历史记录"}">删除</button>`;
 
   const chips = [
     protection
-      ? `<span class="pill ${protection.pillClass}" title="${U.escapeAttr(protection.streak)}; streak protection is ${protection.state.toLowerCase()}; ${U.escapeAttr(protection.days)}">Protection ${protection.state} \u00b7 ${a.streakProtectionRemainingDays == null ? "days unavailable" : `${a.streakProtectionRemainingDays} day${a.streakProtectionRemainingDays === 1 ? "" : "s"} left`}</span>`
+      ? `<span class="pill ${protection.pillClass}" title="${U.escapeAttr(protection.streak)}; 连签保护状态：${protection.state === "ACTIVE" ? "已激活" : (protection.state === "BLOCKED" ? "受限" : protection.state)}; ${U.escapeAttr(protection.days)}">连签保护 ${protection.state === "ACTIVE" ? "已开启" : (protection.state === "BLOCKED" ? "受限" : protection.state)} \u00b7 ${a.streakProtectionRemainingDays == null ? "天数未知" : `剩余 ${a.streakProtectionRemainingDays} 天`}</span>`
       : "",
     earnableBadge(live || {}),
     sourceBreakdown(live || {}),
@@ -363,7 +363,7 @@ function renderAccountPanel(a, live) {
                 <span class="acc-status-icon ${statusIconCls}" role="img" aria-label="${U.escapeAttr(statusLabel)}" title="${U.escapeAttr(statusLabel)}">${statusIcon}</span>${U.escapeHtml(a.email)}
             </h2>
             ${a.index != null ? `<span class="tag-mini acc-tag-account-id">ACCOUNT_${a.index}</span>` : ""}
-            ${a.configured ? "" : '<span class="tag-mini">unconfigured</span>'}
+            ${a.configured ? "" : '<span class="tag-mini">未配置</span>'}
             <span class="acc-detail-actions">
                 <span class="acc-status-pill">${U.statusPill(statusKey)}</span>
                 ${selectCheckbox}
@@ -396,7 +396,7 @@ function render(root) {
   }
 
   if (!accounts.length) {
-    container.innerHTML = '<p class="empty-note" style="padding:1.25rem">No accounts configured or observed yet.</p>';
+    container.innerHTML = '<p class="empty-note" style="padding:1.25rem">暂无已配置或已记录的账号。</p>';
     renderBatchToolbar(root);
     return;
   }
@@ -473,18 +473,18 @@ export default {
               <div class="batch-select-controls">
                   <label class="check">
                       <input type="checkbox" id="accountsSelectAll">
-                      <span>Select all</span>
+                      <span>全选</span>
                   </label>
-                  <span class="hint" id="accountsSelectedCount">0/0 selected</span>
+                  <span class="hint" id="accountsSelectedCount">已选 0/0</span>
                   <button type="button" class="btn btn-primary btn-small" id="accountsRunSelected" disabled>运行选中账号</button>
               </div>
           </div>
       </div>
       <div id="accountsContainer">
-          <p class="empty-note" style="padding:1.25rem">Loading accounts configuration details&hellip;</p>
+          <p class="empty-note" style="padding:1.25rem">正在加载账号配置详情&hellip;</p>
       </div>
-      <p class="hint" style="margin-top: 1.5rem;">Accounts are configured in the bot&rsquo;s <code>.env</code> (<code>ACCOUNT_N_*</code>).
-      The control API exposes full local email addresses but never sends passwords, recovery addresses, TOTP secrets, or proxy credentials.</p>
+      <p class="hint" style="margin-top: 1.5rem;">账号在脚本的 <code>.env</code> 文件中配置（如 <code>ACCOUNT_N_*</code>）。
+      控制 API 仅展示账号邮箱地址，绝不会传输密码、备用邮箱、TOTP 密钥或代理凭据。</p>
     `;
     mounted = true;
 

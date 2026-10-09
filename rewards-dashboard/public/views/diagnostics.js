@@ -22,7 +22,7 @@ function render() {
 
   if (!entries.length) {
     list.innerHTML =
-      '<li class="empty-note">No error captures \u2014 nothing has gone wrong badly enough to be worth a screenshot. Captures need <code>errorDiagnostics</code> enabled in the bot\u2019s config.</li>';
+      '<li class="empty-note">暂无错误捕获快照 — 尚未出现需要截屏的严重故障。快照功能需在脚本配置中启用 <code>errorDiagnostics</code>。</li>';
     return;
   }
 
@@ -30,20 +30,20 @@ function render() {
     .map((entry) => {
       const isOpen = open === entry.name;
       const badges = [
-        entry.hasScreenshot ? '<span class="tag-mini">screenshot</span>' : "",
-        entry.hasError ? '<span class="tag-mini">error.txt</span>' : "",
-        entry.hasHtml ? '<span class="tag-mini">dump.html</span>' : "",
+        entry.hasScreenshot ? '<span class="tag-mini">截屏快照</span>' : "",
+        entry.hasError ? '<span class="tag-mini">错误日志</span>' : "",
+        entry.hasHtml ? '<span class="tag-mini">页面转储</span>' : "",
       ].join("");
 
       const firstLine =
         (entry.error || "").split("\n").find((l) => l.trim()) ||
-        "No error text captured.";
+        "未捕获到错误文本。";
 
       const body = isOpen
         ? `<div class="diag-body">
                     ${entry.hasError
           ? `<pre class="diag-pre">${U.escapeHtml(entry.error || "")}</pre>`
-          : '<p class="empty-note">No error.txt in this capture.</p>'
+          : '<p class="empty-note">本次快照无 error.txt 错误记录。</p>'
         }
                     ${entry.hasScreenshot
           ? `<a class="diag-shot" href="${U.escapeAttr(diagUrl(entry.name, "screenshot.png"))}" target="_blank" rel="noopener">
@@ -52,7 +52,7 @@ function render() {
           : ""
         }
                     ${entry.hasHtml
-          ? `<p><a class="btn btn-small" href="${U.escapeAttr(diagUrl(entry.name, "dump.html"))}" download>Download dump.html</a></p>`
+          ? `<p><a class="btn btn-small" href="${U.escapeAttr(diagUrl(entry.name, "dump.html"))}" download>下载 dump.html</a></p>`
           : ""
         }
                    </div>`
@@ -95,7 +95,7 @@ async function clearSession(email) {
   renderSessions();
   try {
     await context.api.clearSession(email);
-    context.toast(`Sessions cleared for ${email}.`, "success");
+    context.toast(`已清除 ${email} 的登录会话。`, "success");
     context.invalidate();
     await context.refresh();
   } catch (e) {
@@ -144,14 +144,14 @@ function renderSessions() {
       );
       const meta = hasSessions
         ? `${sessions.map((s) => U.escapeHtml(s.platform)).join(" \u00b7 ")} \u00b7 updated ${U.escapeHtml(U.fmtRelative(latest))}`
-        : "No stored sessions";
+        : "暂无保存的会话";
 
       const isClearing = clearing.has(a.email);
       const disabled = !hasSessions || running || isClearing;
       const title = running
-        ? "The bot must be idle to clear a session"
+        ? "脚本必须处于空闲状态才能清除会话"
         : !hasSessions
-          ? "Nothing stored for this account yet"
+          ? "该账号尚未保存任何会话数据"
           : "";
 
       return `<div class="session-card">
@@ -186,7 +186,7 @@ export default {
             <section class="panel" aria-labelledby="sessions-heading">
                 <div class="panel-head">
                     <h2 id="sessions-heading">浏览器会话与登录状态</h2>
-                    <span class="panel-sub">Clearing sessions can fix most common login issues</span>
+                    <span class="panel-sub">清除会话通常可解决绝大多数登录与验证异常</span>
                 </div>
                 <p class="notice notice--warn">
                     Clearing a session logs that account out immediately. It will need to sign in again

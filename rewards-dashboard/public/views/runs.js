@@ -38,7 +38,7 @@ function renderChart() {
   U.$("#runsChartMeta", rootEl).textContent =
     `${U.fmtSigned(total)} points over ${days} days \u00b7 ${active} day${active === 1 ? "" : "s"} with a run`;
   barChart(U.$("#runsChart", rootEl), bars, {
-    emptyMessage: "No point history recorded yet.",
+    emptyMessage: "暂无积分历史记录。",
   });
 }
 
@@ -62,7 +62,7 @@ function renderRuns() {
 
   if (!runs.length) {
     body.innerHTML =
-      '<tr><td colspan="7" class="empty-note">No runs recorded yet.</td></tr>';
+      '<tr><td colspan="7" class="empty-note">暂无运行记录。</td></tr>';
     return;
   }
 
@@ -91,7 +91,7 @@ function renderRuns() {
 
 function exitPill(exit) {
   if (!exit) return U.statusPill("idle");
-  if (exit.code === 0) return '<span class="pill pill-success">Exit 0</span>';
+  if (exit.code === 0) return '<span class="pill pill-success">正常退出 (0)</span>';
   if (exit.signal)
     return `<span class="pill pill-warn">${U.escapeHtml(exit.signal)}</span>`;
   return `<span class="pill pill-error">Exit ${U.escapeHtml(String(exit.code ?? "n/a"))}</span>`;
@@ -107,7 +107,7 @@ function renderExits() {
 
   if (!exits.length) {
     list.innerHTML =
-      '<li class="empty-note">The control API hasn\u2019t recorded any runs yet. Runs it launches itself (manually or on a schedule) show up here.</li>';
+      '<li class="empty-note">控制 API 尚未记录任何运行历史。通过控制台手动或定时触发的运行将在此显示。</li>';
     return;
   }
 
@@ -175,7 +175,7 @@ export default {
             <section class="panel" aria-labelledby="runs-table-heading">
                 <div class="panel-head">
                     <h2 id="runs-table-heading">运行历史明细</h2>
-                    <span class="panel-sub">Parsed from the bot&rsquo;s own log output</span>
+                    <span class="panel-sub">解析自脚本自身的日志输出</span>
                 </div>
                 <div class="table-wrap">
                     <table>
@@ -193,7 +193,7 @@ export default {
             <section class="panel" aria-labelledby="exits-heading">
                 <div class="panel-head">
                     <h2 id="exits-heading">进程退出历史</h2>
-                    <span class="panel-sub">How each run the control API launched actually ended</span>
+                    <span class="panel-sub">控制 API 触发的每次任务最终退出状态</span>
                 </div>
                 <p class="notice notice--warn" id="exitsError" hidden></p>
                 <ul class="exit-list" id="exitList"></ul>

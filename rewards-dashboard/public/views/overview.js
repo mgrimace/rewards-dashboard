@@ -63,7 +63,7 @@ function activeSchedule(status) {
     };
   }
   return {
-    description: local?.description || remote?.description || "Not scheduled",
+    description: local?.description || remote?.description || "未设置定时任务",
     enabled: false,
     timezone: status?.timezone || "UTC",
   };
@@ -202,7 +202,7 @@ function renderAccountRows(root) {
   container.innerHTML = accounts
     .map((a) => {
       const days = daysByKey[a.key] || null;
-      let barCell = '<p class="empty-note" style="font-size:0.78rem;margin:0">No history yet</p>';
+      let barCell = '<p class="empty-note" style="font-size:0.78rem;margin:0">暂无历史记录</p>';
       
       if (days) {
         // Toggle view logic
@@ -224,8 +224,8 @@ function renderAccountRows(root) {
         todayGained != null
           ? `+${todayGained.toLocaleString()}\u202fpts today`
           : a.status === "running"
-            ? "Running\u2026"
-            : "No run today";
+            ? "运行中\u2026"
+            : "今日尚未运行";
 
       const accountHistory = histories[a.key] || [];
       let gainHtml = "";
@@ -239,7 +239,7 @@ function renderAccountRows(root) {
           other !== 0
             ? `${U.fmtSigned(selfReported)}${other >= 0 ? "+" : "-"}${Math.abs(other).toLocaleString()} pts`
             : `${U.fmtSigned(trueGain)} pts`;
-        gainHtml = ` \u00b7 <span class="gain-val" title="Change in points since last check-in from all sources">${gainText}</span>`;
+        gainHtml = ` \u00b7 <span class="gain-val" title="自上次签到以来各渠道积分变动">${gainText}</span>`;
       }
 
       const dur = a.lastDurationSec != null ? U.fmtDuration(a.lastDurationSec) : null;
@@ -248,7 +248,7 @@ function renderAccountRows(root) {
         a.status === "running"
           ? `<span class="hero-sub-running">Running\u2026 ${U.escapeHtml(U.fmtRelative(a.lastStartAt))}</span>`
           : `Last Run: ${U.escapeHtml(U.fmtRelative(a.lastEndAt || a.lastStartAt))}${
-              dur ? ` \u00b7 <span title="Last run duration">⏱ ${U.escapeHtml(dur)}</span>` : ""
+              dur ? ` \u00b7 <span title="上次执行用时">⏱ ${U.escapeHtml(dur)}</span>` : ""
             }${gainHtml}`;
 
       return `<div class="hero-row">
@@ -256,12 +256,12 @@ function renderAccountRows(root) {
             <div class="hero-acc-card">
                 <div class="hero-acc-pts">
                     <span class="hero-pts-num">${a.lastPoints != null ? U.fmtNumber(a.lastPoints) : "\u2013"}</span>
-                    <span class="hero-pts-unit">Points</span>
+                    <span class="hero-pts-unit">积分</span>
                 </div>
                 <div class="hero-acc-info">
                     <div class="hero-acc-name">
                         ${MASK_EMAILS ? `ACCOUNT_${a.index}` : U.escapeHtml(a.email)}
-                        ${a.configured ? "" : ' <span class="tag-mini">unconfigured</span>'}
+                        ${a.configured ? "" : ' <span class="tag-mini">未配置</span>'}
                     </div>
                     <div class="hero-acc-meta">
                         <span class="hero-acc-today">
@@ -281,7 +281,7 @@ function renderAccountRows(root) {
                 </div>
                 <div class="hero-acc-actions">
                     ${a.configured && Number.isInteger(a.index)
-                      ? `<button type="button" class="link-btn" data-run-account="${a.index}" ${!usable || running || launching.has(a.index) ? "disabled" : ""} title="Run only ACCOUNT_${a.index}">${launching.has(a.index) ? "Starting…" : "Run only"}</button>`
+                      ? `<button type="button" class="link-btn" data-run-account="${a.index}" ${!usable || running || launching.has(a.index) ? "disabled" : ""} title="仅运行 ACCOUNT_${a.index}">${launching.has(a.index) ? "启动中…" : "单跑此号"}</button>`
                       : ""
                     }
                     <button type="button" class="link-btn" data-trend="${U.escapeAttr(a.key)}" aria-pressed="${selected === a.key}">趋势图</button>
@@ -294,7 +294,7 @@ function renderAccountRows(root) {
   // The timeline view is a rolling recent-history strip, so scrolling it to
   // its end shows the most recent days by default - that's still correct.
   // The heatmap is intentionally left-anchored to where the account's data
-  // starts, with empty "coming up" cells trailing off to the right, so it
+  // starts, with empty "即将执行" cells trailing off to the right, so it
   // must NOT be force-scrolled to its end - that would undo the fix and put
   // the user right back at a mostly-empty future edge instead of their data.
   container.querySelectorAll(".accum-track").forEach((track) => {
@@ -340,7 +340,7 @@ function renderTrend() {
       value: h.points,
       label: U.fmtDateTime(h.ts),
     })),
-    { emptyMessage: "No point history recorded for this account yet." },
+    { emptyMessage: "该账号暂无积分历史记录。" },
   );
 }
 
@@ -368,7 +368,7 @@ function renderRunHeader(root, status) {
 
   // run.accounts only ever contains accounts that have started (see
   // logParser.js's ensureAccount) - success stays null until it finishes,
-  // so this is the one reliable way to tell "finished" from "still running"
+  // so this is the one reliable way to tell "finished" from "仍在运行中"
   // rather than trusting accountsSeen, which counts starts, not completions.
   const doneCount = runAccounts.filter((a) => a.success != null).length;
   const seenCount = Number.isFinite(Number(run?.accountsSeen))

@@ -668,11 +668,11 @@ function textFieldHtml(path, def) {
             <span class="hint-text">${U.escapeHtml(def.label)}</span>
             <input class="input" type="${type}" data-path="${U.escapeAttr(path)}"
                 value="${U.escapeAttr(String(value))}"
-                placeholder="${U.escapeAttr(locked ? "Hidden \u2014 tick \u201cReveal secrets\u201d below to edit" : def.placeholder || "")}"
+                placeholder="${U.escapeAttr(locked ? "敏感信息已隐藏 — 勾选下方的“显示敏感配置”以编辑" : def.placeholder || "")}"
                 ${locked ? "disabled" : ""}
                 ${def.min != null ? `min="${def.min}"` : ""}
                 ${def.step != null ? `step="${def.step}"` : ""}>
-            ${locked ? '<span class="field-locked">\uD83D\uDD12 Hidden until secrets are revealed</span>' : ""}
+            ${locked ? '<span class="field-locked">🔒 敏感信息已隐藏（点击下方“显示敏感配置”查看）</span>' : ""}
         </label>`;
 }
 
@@ -706,15 +706,15 @@ function tagsFieldHtml(path, def) {
         (item, i) => `
                     <span class="tag-chip${def.mono ? " tag-chip--mono" : ""}">
                         <span class="tag-chip-text">${U.escapeHtml(String(item))}</span>
-                        <button type="button" class="tag-chip-remove" data-tag-remove="${i}" aria-label="Remove ${U.escapeAttr(String(item))}">&times;</button>
+                        <button type="button" class="tag-chip-remove" data-tag-remove="${i}" aria-label="移除 ${U.escapeAttr(String(item))}">&times;</button>
                     </span>`,
       )
       .join("")}
-                ${!items.length ? '<span class="empty-note tag-empty">None set</span>' : ""}
+                ${!items.length ? '<span class="empty-note tag-empty">未设置</span>' : ""}
             </div>
             <div class="tag-add">
-                <input class="input tag-add-input" type="text" placeholder="${U.escapeAttr(def.placeholder || "Add value\u2026")}" ${dlId ? `list="${dlId}"` : ""}>
-                <button type="button" class="btn btn-small tag-add-btn">Add</button>
+                <input class="input tag-add-input" type="text" placeholder="${U.escapeAttr(def.placeholder || "添加值\u2026")}" ${dlId ? `list="${dlId}"` : ""}>
+                <button type="button" class="btn btn-small tag-add-btn">添加</button>
             </div>
             ${dlId ? `<datalist id="${dlId}">${def.suggestions.map((s) => `<option value="${U.escapeAttr(s)}">`).join("")}</datalist>` : ""}
             ${def.hint ? `<span class="field-hint">${U.escapeHtml(def.hint)}</span>` : ""}
@@ -753,14 +753,12 @@ function fieldHtml(path, def) {
 function webhookFilterTipHtml() {
   return `
         <p class="notice notice--info cfg-tip">
-            Set <strong>Webhook log filter</strong> to <em>on</em> before enabling a push-notification
-            webhook like ntfy, or you&rsquo;ll get a notification for every log line, including debug noise.
-            With it enabled, only account start, 2FA codes, and account completion summaries are delivered.
-            Use whitelist mode and the &ldquo;Webhook filter keywords&rdquo; field below to customize exactly
-            which notifications you receive.
+            在启用 ntfy 等推送通知 Webhook 之前，请先将 <strong>Webhook 日志过滤项</strong> 设置为 <em>开启</em>，否则每条日志（包括调试杂讯）都会触发通知。
+            开启后，仅账号启动、双重验证码以及账号完成总结会被推送。
+            您可以使用白名单模式并在下方的“Webhook 过滤关键词”字段中自定义所需推送的内容。
             <span class="notice-actions">
                 <button type="button" id="cfgWebhookFilterTipBtn" class="btn btn-primary btn-small">应用推荐过滤规则</button>
-                <span class="notice-sub">whitelist &middot; starting account, select number, collected</span>
+                <span class="notice-sub">白名单模式 &middot; 账号启动、选择数字、积分收集</span>
             </span>
         </p>`;
 }
@@ -781,7 +779,7 @@ function bindFieldEvents(host) {
       }
       const value = isNumber ? Number(next) : next;
       if (isNumber && Number.isNaN(value)) {
-        U.toast("Enter a valid number.", "error");
+        U.toast("请输入有效的数字。", "error");
         input.value = original;
         return;
       }
@@ -858,7 +856,7 @@ function bindFieldEvents(host) {
         ? [...getDeep(loaded, path)]
         : [];
       if (items.includes(value)) {
-        U.toast("Already in the list.", "info");
+        U.toast("该项已在列表中。", "info");
         input.value = "";
         return;
       }
@@ -877,9 +875,9 @@ function bindFieldEvents(host) {
   const tipBtn = U.$("#cfgWebhookFilterTipBtn", host);
   tipBtn?.addEventListener("click", async () => {
     tipBtn.disabled = true;
-    tipBtn.textContent = "Applying\u2026";
+    tipBtn.textContent = "正在应用\u2026";
     try {
-      await save(RECOMMENDED_WEBHOOK_FILTER, "recommended webhook filter");
+      await save(RECOMMENDED_WEBHOOK_FILTER, "推荐 Webhook 过滤项");
       afterSave(RECOMMENDED_WEBHOOK_FILTER);
     } catch {
       // save() already explained why
@@ -895,14 +893,14 @@ function explainConfigError(e) {
     return {
       kind: "warn",
       message:
-        "Config writes are disabled on the control API. Set <code>API_ALLOW_CONFIG_WRITE=true</code> in the bot&rsquo;s environment and restart it.",
+        "控制 API 已禁用配置写入。请在脚本容器的环境变量中设置 <code>API_ALLOW_CONFIG_WRITE=true</code> 并重启。",
     };
   }
   if (e.status === 422) {
     const errors = (e.body && e.body.errors) || [];
     return {
       kind: "error",
-      message: `<strong>The bot rejected this config:</strong><ul>${errors.map((x) => `<li>${U.escapeHtml(x)}</li>`).join("")}</ul>`,
+      message: `<strong>脚本拒绝了此配置：</strong><ul>${errors.map((x) => `<li>${U.escapeHtml(x)}</li>`).join("")}</ul>`,
     };
   }
   return { kind: "error", message: U.escapeHtml(e.message) };
@@ -912,7 +910,7 @@ async function save(patch, description) {
   try {
     const res = await api.patchConfig(patch);
     showNotice("cfgNotice", "");
-    U.toast(`Saved: ${description}. Applies on the next run.`, "success");
+    U.toast(`已保存：${description}。将在下次运行时生效。`, "success");
     return res;
   } catch (e) {
     const { kind, message } = explainConfigError(e);
@@ -943,11 +941,11 @@ function renderDrift() {
   el.hidden = false;
   el.className = "notice notice--warn";
   el.innerHTML = `
-    <strong>Config update available</strong> &mdash; ${n} field${n === 1 ? "" : "s"} added in a recent script update:
+    <strong>发现配置更新</strong> &mdash; ${n} field${n === 1 ? "" : "s"} added in a recent script update:
     <ul>${drift.addedKeys.map((k) => `<li><code>${U.escapeHtml(k)}</code></li>`).join("")}</ul>
     <div class="notice-actions">
       <button type="button" id="cfgSyncBtn" class="btn btn-primary btn-small">立即同步</button>
-      <span class="notice-sub">Adds the missing fields with their defaults. Your existing values are never changed.</span>
+      <span class="notice-sub">以默认值自动补全缺失的新配置项，现有的自定义设置不受影响。</span>
     </div>`;
   U.$("#cfgSyncBtn", rootEl).addEventListener("click", doSync);
 }
@@ -955,14 +953,14 @@ function renderDrift() {
 async function doSync() {
   const btn = U.$("#cfgSyncBtn", rootEl);
   btn.disabled = true;
-  btn.textContent = "Syncing\u2026";
+  btn.textContent = "正在同步\u2026";
   try {
     const result = await api.syncConfig();
     showNotice("cfgNotice", "");
     U.toast(
       result.patched
         ? `Synced ${result.addedKeys.length} field${result.addedKeys.length === 1 ? "" : "s"}. Applies on the next run.`
-        : "Already up to date.",
+        : "配置已是最新状态。",
       "success",
     );
     await loadConfig(U.$("#cfgReveal", rootEl)?.checked || false); // reload config.json (now includes the synced fields) and re-check drift
@@ -1006,7 +1004,7 @@ export default {
             <section class="panel" aria-labelledby="cfg-settings-heading">
                 <div class="panel-head">
                     <h2 id="cfg-settings-heading">运行规则与参数设置</h2>
-                    <span class="panel-sub">Saves each change automatically. Applies on the next run.</span>
+                    <span class="panel-sub">自动保存每项修改，将在下次运行时生效。</span>
                 </div>
                 <div class="cfg-toggle-groups" id="cfgSettings"></div>
             </section>
@@ -1014,10 +1012,10 @@ export default {
             <section class="panel" aria-labelledby="cfg-raw-heading">
                 <div class="panel-head">
                     <h2 id="cfg-raw-heading">原始 config.json 配置</h2>
-                    <span class="panel-sub">Only the fields you actually change are sent</span>
+                    <span class="panel-sub">仅提交您实际修改过的字段</span>
                     <label class="check">
                         <input type="checkbox" id="cfgReveal">
-                        <span>Reveal secrets</span>
+                        <span>显示敏感配置</span>
                     </label>
                 </div>
 
@@ -1043,7 +1041,7 @@ export default {
         if (e.target.checked && res.redacted) {
           showNotice(
             "cfgNotice",
-            "The control API refused to reveal secrets. Set <code>API_ALLOW_CONFIG_REVEAL=true</code> (and an <code>API_TOKEN</code>) on it to enable this.",
+            "控制 API 拒绝显示敏感配置。请在脚本环境中启用 <code>API_ALLOW_CONFIG_REVEAL=true</code> 并配置 <code>API_TOKEN</code>。",
           );
         }
       } catch (err) {
@@ -1066,16 +1064,16 @@ export default {
 
       const patch = deepDiff(loaded, edited);
       if (!Object.keys(patch).length) {
-        U.toast("Nothing changed.", "info");
+        U.toast("配置未发生改变。", "info");
         return;
       }
 
       if (JSON.stringify(patch).includes(REDACTED)) {
         showNotice(
           "cfgNotice",
-          "That change would write <code>" +
+          "该项修改将把 <code>" +
           REDACTED +
-          "</code> over a real secret. Enable <code>API_ALLOW_CONFIG_REVEAL=true</code> on the control API and tick &ldquo;Reveal secrets&rdquo; first.",
+          "</code> 覆盖真实的密钥。请先在控制 API 开启 <code>API_ALLOW_CONFIG_REVEAL=true</code> 并勾选“显示敏感配置”。",
           "error",
         );
         return;
