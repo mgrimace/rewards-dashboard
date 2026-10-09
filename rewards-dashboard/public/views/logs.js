@@ -58,9 +58,9 @@ function updateMeta() {
   const btn = U.$("#logPause", rootEl);
   btn.textContent = paused
     ? pendingWhilePaused
-      ? `Resume (${pendingWhilePaused} new)`
-      : "Resume"
-    : "Pause";
+      ? `继续 (${pendingWhilePaused} 条新日志)`
+      : "继续"
+    : "暂停";
   btn.classList.toggle("btn-primary", paused);
 }
 
@@ -117,7 +117,7 @@ function download() {
 
 export default {
   id: "logs",
-  label: "Logs",
+  label: "实时日志",
   interval: 0, // live — nothing to poll
 
   mount(root, ctx) {
@@ -125,7 +125,7 @@ export default {
     root.innerHTML = `
             <section class="panel" aria-labelledby="logs-heading">
                 <div class="panel-head">
-                    <h2 id="logs-heading">Live logs</h2>
+                    <h2 id="logs-heading">实时运行日志</h2>
                     <span class="panel-sub" id="logCount">0 lines buffered</span>
                 </div>
 
@@ -141,16 +141,16 @@ export default {
                     </label>
                     <label class="field field--grow">
                         <span class="visually-hidden">Search</span>
-                        <input id="logSearch" class="input" type="search" placeholder="Filter lines\u2026" autocomplete="off">
+                        <input id="logSearch" class="input" type="search" placeholder="过滤日志关键字…" autocomplete="off">
                     </label>
                     <label class="check">
                         <input type="checkbox" id="logAutoscroll" checked>
                         <span>Autoscroll</span>
                     </label>
-                    <button type="button" id="logPause" class="btn">Pause</button>
-                    <button type="button" id="logMore" class="btn">Load 2000</button>
-                    <button type="button" id="logDownload" class="btn">Download</button>
-                    <button type="button" id="logClear" class="btn">Clear</button>
+                    <button type="button" id="logPause" class="btn">暂停</button>
+                    <button type="button" id="logMore" class="btn">加载 2000 行</button>
+                    <button type="button" id="logDownload" class="btn">下载日志</button>
+                    <button type="button" id="logClear" class="btn">清空日志</button>
                 </div>
 
                 <div class="log-box" id="logBox" tabindex="0" aria-live="off">

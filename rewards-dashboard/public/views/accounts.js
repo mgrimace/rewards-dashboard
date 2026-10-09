@@ -18,17 +18,17 @@ const deleteArmed = new Set();
 const deleting = new Set();
 
 const SOURCE_LABELS = {
-  search: "Search",
-  bonus: "Bonus search",
-  read: "Read",
-  checkIn: "Check-in",
-  claimReward: "Claim reward",
-  claimBonus: "Claim bonus",
-  urlReward: "URL reward",
-  visualSearch: "Visual search",
-  appReward: "App reward",
-  punchcard: "Punchcard",
-  searchOnBing: "Search activity",
+  search: "搜索任务",
+  bonus: "加成搜索",
+  read: "阅读赚取",
+  checkIn: "每日签到",
+  claimReward: "领取奖励",
+  claimBonus: "领取加成",
+  urlReward: "活动链接",
+  visualSearch: "视觉搜索",
+  appReward: "App 任务",
+  punchcard: "打卡任务",
+  searchOnBing: "Bing 搜索活动",
 };
 
 function controlState() {
@@ -177,7 +177,7 @@ function protectionPresentation(account) {
   const state = account.streakProtectionEnabled ? "On" : "Off";
   const streak =
     account.streakCounter == null
-      ? "streak unavailable"
+      ? "连击信息不可用"
       : `${U.fmtNumber(account.streakCounter)} day${account.streakCounter === 1 ? "" : "s"} current streak`;
 
   return {
@@ -225,18 +225,18 @@ function detailGroups(a, protection) {
   ]);
 
   groups.push([
-    "Streak &amp; protection",
+    "连击与保护状态",
     [
-      ["Success streak", `${a.successStreak} run${a.successStreak === 1 ? "" : "s"}`],
+      ["连续成功运行", `${a.successStreak} run${a.successStreak === 1 ? "" : "s"}`],
       ...(protection
         ? [
           [
-            "Current streak",
+            "当前连续签到",
             a.streakCounter == null
               ? "Unavailable"
               : `${U.fmtNumber(a.streakCounter)} day${a.streakCounter === 1 ? "" : "s"}`,
           ],
-          ["Streak protection", protection.state === "On" ? "Enabled" : "Disabled"],
+          ["连击保护", protection.state === "On" ? "已开启" : "未开启"],
           [
             "Protection days remaining",
             a.streakProtectionRemainingDays == null
@@ -244,7 +244,7 @@ function detailGroups(a, protection) {
               : `${a.streakProtectionRemainingDays} day${a.streakProtectionRemainingDays === 1 ? "" : "s"}`,
           ],
           ...(a.streakProtectionUpdatedAt
-            ? [["Protection status checked", U.fmtRelative(a.streakProtectionUpdatedAt)]]
+            ? [["保护状态检查时间", U.fmtRelative(a.streakProtectionUpdatedAt)]]
             : []),
         ]
         : []),
@@ -279,7 +279,7 @@ function statusIconParts(statusKey) {
   switch (statusKey) {
     case "success":
     case "done":
-      return { cls: "stat-icon-check", icon: "\u2713", label: "Success" };
+      return { cls: "stat-icon-check", icon: "\u2713", label: "成功" };
     case "running":
     case "starting":
     case "stopping":
@@ -292,7 +292,7 @@ function statusIconParts(statusKey) {
     case "stopped":
       return { cls: "stat-icon-alert icon-alert-active", icon: "!", label: U.pillParts(statusKey).label };
     default:
-      return { cls: "stat-icon-idle", icon: "\u2013", label: "Idle" };
+      return { cls: "stat-icon-idle", icon: "\u2013", label: "空闲" };
   }
 }
 
@@ -319,12 +319,12 @@ function renderAccountPanel(a, live) {
   const runButton =
     a.configured && Number.isInteger(a.index)
       ? `<button type="button" class="btn btn-primary btn-small" data-run-account="${a.index}" ${!usable || running || launching.has(a.index) ? "disabled" : ""
-      } title="Run only ACCOUNT_${a.index}">${launching.has(a.index) ? "Starting\u2026" : "Run only"}</button>`
+      } title="仅运行 ACCOUNT_${a.index}">${launching.has(a.index) ? "正在启动…" : "仅运行此账号"}</button>`
       : "";
 
   const selectCheckbox =
     a.configured && Number.isInteger(a.index)
-      ? `<label class="check acc-batch-select" title="Include ACCOUNT_${a.index} in a batch run">
+      ? `<label class="check acc-batch-select" title="勾选 ACCOUNT_${a.index} 加入批量运行">
           <input type="checkbox" data-select-account="${a.index}" ${selectedForBatch.has(a.index) ? "checked" : ""}>
           <span>Select</span>
         </label>`
@@ -338,9 +338,9 @@ function renderAccountPanel(a, live) {
   const deleteBlocked = a.status === "running" || launching.has(a.index);
   const deleteButton = deleteArmed.has(a.key)
     ? `<span class="acc-delete-confirm">
-        <button type="button" class="btn btn-small" data-cancel-delete="${U.escapeAttr(a.key)}" ${isDeleting ? "disabled" : ""}>Cancel</button>
-        <button type="button" class="btn btn-danger btn-small" data-confirm-delete="${U.escapeAttr(a.key)}" ${isDeleting ? "disabled" : ""} title="Permanently remove this account and its history from the dashboard">
-            ${isDeleting ? "Removing\u2026" : "Are you sure?"}
+        <button type="button" class="btn btn-small" data-cancel-delete="${U.escapeAttr(a.key)}" ${isDeleting ? "disabled" : ""}>取消</button>
+        <button type="button" class="btn btn-danger btn-small" data-confirm-delete="${U.escapeAttr(a.key)}" ${isDeleting ? "disabled" : ""} title="永久从控制台删除该账号及其历史数据">
+            ${isDeleting ? "正在删除…" : "确认删除?"}
         </button>
       </span>`
     : `<button type="button" class="btn btn-danger btn-small" data-arm-delete="${U.escapeAttr(a.key)}" ${deleteBlocked ? "disabled" : ""} title="${deleteBlocked ? "The account must be idle to delete it" : "Remove this account and its history from the dashboard"}">Delete</button>`;
@@ -359,7 +359,7 @@ function renderAccountPanel(a, live) {
     <div class="panel account-detail-panel">
         <div class="panel-head">
             <h2>
-                <button type="button" class="acc-detail-toggle" data-toggle-details="${U.escapeAttr(a.key)}" aria-expanded="${isExpanded}" aria-controls="${detailsId}" title="${isExpanded ? "Collapse details" : "Expand details"}">\u25b8</button>
+                <button type="button" class="acc-detail-toggle" data-toggle-details="${U.escapeAttr(a.key)}" aria-expanded="${isExpanded}" aria-controls="${detailsId}" title="${isExpanded ? "折叠详情" : "展开详情"}">\u25b8</button>
                 <span class="acc-status-icon ${statusIconCls}" role="img" aria-label="${U.escapeAttr(statusLabel)}" title="${U.escapeAttr(statusLabel)}">${statusIcon}</span>${U.escapeHtml(a.email)}
             </h2>
             ${a.index != null ? `<span class="tag-mini acc-tag-account-id">ACCOUNT_${a.index}</span>` : ""}
@@ -375,7 +375,7 @@ function renderAccountPanel(a, live) {
             ${detailGroups(a, protection)}
         </div>
         ${chips ? `<div class="account-today-row">
-            <span class="account-today-label">Today</span>
+            <span class="account-today-label">今日</span>
             <div class="account-today-chips">${chips}</div>
         </div>` : ""}
     </div>`;
@@ -459,7 +459,7 @@ function render(root) {
 
 export default {
   id: "accounts",
-  label: "Accounts",
+  label: "账号管理",
   interval: 10000,
 
   mount(root, ctx) {
@@ -469,14 +469,14 @@ export default {
       <p class="notice notice--warn" id="accountsError" hidden></p>
       <div class="panel batch-select-box" id="accountsBatchToolbar">
           <div class="batch-select-header">
-              <h2 class="batch-select-title">Batch run</h2>
+              <h2 class="batch-select-title">批量运行</h2>
               <div class="batch-select-controls">
                   <label class="check">
                       <input type="checkbox" id="accountsSelectAll">
                       <span>Select all</span>
                   </label>
                   <span class="hint" id="accountsSelectedCount">0/0 selected</span>
-                  <button type="button" class="btn btn-primary btn-small" id="accountsRunSelected" disabled>Run selected</button>
+                  <button type="button" class="btn btn-primary btn-small" id="accountsRunSelected" disabled>运行选中账号</button>
               </div>
           </div>
       </div>

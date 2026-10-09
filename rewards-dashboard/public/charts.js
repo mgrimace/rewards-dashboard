@@ -92,7 +92,7 @@ export function lineChart(
 
   container.innerHTML = `
         <svg class="chart" viewBox="0 0 ${width} ${height}" width="100%" height="${height}" role="img"
-             aria-label="Point total over time">
+             aria-label="累计积分变化趋势">
             ${grid}
             <path class="chart-area" d="${area}" />
             <path class="chart-line" d="${line}" />
@@ -143,7 +143,7 @@ export function barChart(
 
   container.innerHTML = `
         <svg class="chart" viewBox="0 0 ${width} ${height}" width="100%" height="${height}" role="img"
-             aria-label="Points collected per day">
+             aria-label="每日获得积分">
             ${grid}
             <line class="chart-grid chart-baseline" x1="${PAD.left}" y1="${baseY}" x2="${width - PAD.right}" y2="${baseY}" />
             ${rects}
@@ -320,7 +320,7 @@ export function buildAccumBarHtml(days, globalMaxGained, maxDays = null) {
       month: "short",
       day: "numeric",
     });
-    html += `<div class="accum-week-marker" title="Week of ${escapeAttr(label)}: +${weekGained.toLocaleString()} pts"></div>`;
+    html += `<div class="accum-week-marker" title="${escapeAttr(label)} 该周累计: +${weekGained.toLocaleString()} 积分"></div>`;
     weekGained = 0;
   };
 
@@ -340,7 +340,7 @@ export function buildAccumBarHtml(days, globalMaxGained, maxDays = null) {
       );
       if (missed >= 1) {
         const gapClass = missed === 1 ? " accum-gap--warn" : " accum-gap--bad";
-        html += `<div class="accum-gap${gapClass}" style="width:${missed * 16}px" title="Gap: ${missed} missed day${missed > 1 ? "s" : ""}"></div>`;
+        html += `<div class="accum-gap${gapClass}" style="width:${missed * 16}px" title="中断: 连续 ${missed} 天未运行"></div>`;
       }
     }
 

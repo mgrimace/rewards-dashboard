@@ -72,26 +72,26 @@ export function fmtRelative(iso) {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return DASH;
   const mins = Math.round((Date.now() - d.getTime()) / 60000);
-  if (mins < 1) return "just now";
-  if (mins < 60) return `${mins}m ago`;
+  if (mins < 1) return "刚刚";
+  if (mins < 60) return `${mins}分钟前`;
   const hours = Math.round(mins / 60);
-  if (hours < 24) return `${hours}h ago`;
-  return `${Math.round(hours / 24)}d ago`;
+  if (hours < 24) return `${hours}小时前`;
+  return `${Math.round(hours / 24)}天前`;
 }
 
 export function fmtDuration(sec) {
   if (sec == null || Number.isNaN(sec)) return DASH;
-  if (sec < 60) return `${Math.round(sec)}s`;
+  if (sec < 60) return `${Math.round(sec)}秒`;
   const m = Math.floor(sec / 60);
   const s = Math.round(sec % 60);
-  if (m < 60) return s ? `${m}m ${s}s` : `${m}m`;
+  if (m < 60) return s ? `${m}分${s}秒` : `${m}分钟`;
   const h = Math.floor(m / 60);
-  return `${h}h ${m % 60}m`;
+  return `${h}小时${m % 60}分`;
 }
 
 export function fmtUptime(sec) {
   if (sec == null) return DASH;
-  if (sec < 60) return `${Math.round(sec)}s`;
+  if (sec < 60) return `${Math.round(sec)}秒`;
   return fmtDuration(sec);
 }
 
@@ -293,17 +293,17 @@ export function debounce(fn, ms = 250) {
 }
 
 const PILLS = {
-  success: ["pill-success", "Success"],
-  done: ["pill-success", "Done"],
-  error: ["pill-error", "Error"],
-  crashed: ["pill-error", "Crashed"],
-  interrupted: ["pill-warn", "Interrupted"],
-  stopped: ["pill-warn", "Stopped"],
-  running: ["pill-running", "Running"],
-  starting: ["pill-running", "Starting"],
-  stopping: ["pill-warn", "Stopping"],
+  success: ["pill-success", "成功"],
+  done: ["pill-success", "完成"],
+  error: ["pill-error", "异常"],
+  crashed: ["pill-error", "崩溃"],
+  interrupted: ["pill-warn", "已中断"],
+  stopped: ["pill-warn", "已停止"],
+  running: ["pill-running", "运行中"],
+  starting: ["pill-running", "启动中"],
+  stopping: ["pill-warn", "停止中"],
   pending: ["pill-pending", "Pending"],
-  idle: ["pill-idle", "Idle"],
+  idle: ["pill-idle", "空闲"],
 };
 
 export function pillParts(status) {

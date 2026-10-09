@@ -1,16 +1,16 @@
 import * as U from "../util.js";
 
 const PRESETS = [
-  ["Daily at 09:00", "0 9 * * *"],
-  ["Twice daily (09:00, 21:00)", "0 9,21 * * *"],
-  ["Every 6 hours", "0 */6 * * *"],
-  ["Every 12 hours", "0 */12 * * *"],
-  ["Weekdays at 08:00", "0 8 * * 1-5"],
+  ["每天早上 09:00", "0 9 * * *"],
+  ["每天两次 (09:00, 21:00)", "0 9,21 * * *"],
+  ["每 6 小时一次", "0 */6 * * *"],
+  ["每 12 小时一次", "0 */12 * * *"],
+  ["工作日早上 08:00", "0 8 * * 1-5"],
 ];
 
 const TARGET_LABEL = {
-  local: "This dashboard",
-  remote: "Bot container (Docker cron)",
+  local: "本地网页调度 (Dashboard)",
+  remote: "容器内置调度 (Docker Cron)",
 };
 
 let rootEl = null;
@@ -185,7 +185,7 @@ async function describe(expr) {
 
 export default {
   id: "schedule",
-  label: "Schedule",
+  label: "定时调度",
   interval: 30000,
 
   mount(root, ctx) {
@@ -193,11 +193,11 @@ export default {
     root.innerHTML = `
             <section class="panel" aria-labelledby="sched-heading">
                 <div class="panel-head">
-                    <h2 id="sched-heading">Automatic runs</h2>
+                    <h2 id="sched-heading">定时自动运行</h2>
                     <span class="panel-sub">Two schedulers are available &mdash; pick the one that fits your setup</span>
                 </div>
 
-                <div class="seg" id="schedTargetToggle" role="radiogroup" aria-label="Scheduler location">
+                <div class="seg" id="schedTargetToggle" role="radiogroup" aria-label="调度执行位置">
                     <button type="button" class="seg-btn seg-btn--active" id="schedTargetLocal" data-target="local" aria-pressed="true">${U.escapeHtml(TARGET_LABEL.local)}</button>
                     <button type="button" class="seg-btn" id="schedTargetRemote" data-target="remote" aria-pressed="false" hidden>${U.escapeHtml(TARGET_LABEL.remote)}</button>
                 </div>
@@ -255,8 +255,8 @@ export default {
                     </label>
 
                     <div class="form-actions">
-                        <button type="button" id="schedSave" class="btn btn-primary" disabled>Save schedule</button>
-                        <button type="button" id="schedReset" class="btn">Discard changes</button>
+                        <button type="button" id="schedSave" class="btn btn-primary" disabled>保存计划</button>
+                        <button type="button" id="schedReset" class="btn">放弃修改</button>
                     </div>
                 </div>
                 <p class="empty-note" id="schedUnavailable" hidden>
@@ -267,7 +267,7 @@ export default {
             </section>
 
             <section class="panel" aria-labelledby="sched-state-heading">
-                <div class="panel-head"><h2 id="sched-state-heading">Current state</h2></div>
+                <div class="panel-head"><h2 id="sched-state-heading">当前调度状态</h2></div>
                 <dl class="kv">
                     <div><dt>Next run</dt><dd id="schedNext">\u2013</dd></div>
                     <div><dt>Last triggered</dt><dd id="schedLast">\u2013</dd></div>

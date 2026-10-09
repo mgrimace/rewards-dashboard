@@ -153,7 +153,7 @@ function renderExits() {
 
 export default {
   id: "runs",
-  label: "Runs",
+  label: "运行记录",
   interval: 20000,
 
   mount(root) {
@@ -161,12 +161,12 @@ export default {
     root.innerHTML = `
             <section class="panel" aria-labelledby="runs-chart-heading">
                 <div class="panel-head">
-                    <h2 id="runs-chart-heading">Points per day</h2>
+                    <h2 id="runs-chart-heading">每日积分趋势</h2>
                     <span class="panel-sub" id="runsChartMeta"></span>
-                    <div class="seg" role="group" aria-label="Date range">
-                        <button type="button" class="seg-btn" data-days="14">14d</button>
-                        <button type="button" class="seg-btn seg-btn--active" data-days="30">30d</button>
-                        <button type="button" class="seg-btn" data-days="90">90d</button>
+                    <div class="seg" role="group" aria-label="时间跨度">
+                        <button type="button" class="seg-btn" data-days="14">14天</button>
+                        <button type="button" class="seg-btn seg-btn--active" data-days="30">30天</button>
+                        <button type="button" class="seg-btn" data-days="90">90天</button>
                     </div>
                 </div>
                 <div id="runsChart" class="chart-wrap"></div>
@@ -174,15 +174,15 @@ export default {
 
             <section class="panel" aria-labelledby="runs-table-heading">
                 <div class="panel-head">
-                    <h2 id="runs-table-heading">Run history</h2>
+                    <h2 id="runs-table-heading">运行历史明细</h2>
                     <span class="panel-sub">Parsed from the bot&rsquo;s own log output</span>
                 </div>
                 <div class="table-wrap">
                     <table>
                         <thead>
                             <tr>
-                                <th>Status</th><th>Started</th><th>Duration</th>
-                                <th>Accounts</th><th>Gained</th><th>New total</th><th>Version</th>
+                                <th>状态</th><th>开始时间</th><th>执行用时</th>
+                                <th>账号数</th><th>获得积分</th><th>积分总计</th><th>版本</th>
                             </tr>
                         </thead>
                         <tbody id="runsBody"></tbody>
@@ -192,7 +192,7 @@ export default {
 
             <section class="panel" aria-labelledby="exits-heading">
                 <div class="panel-head">
-                    <h2 id="exits-heading">Process exits</h2>
+                    <h2 id="exits-heading">进程退出历史</h2>
                     <span class="panel-sub">How each run the control API launched actually ended</span>
                 </div>
                 <p class="notice notice--warn" id="exitsError" hidden></p>

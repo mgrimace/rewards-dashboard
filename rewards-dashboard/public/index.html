@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="zh-CN">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -8,14 +8,14 @@
     <link rel="manifest" href="/manifest.json">
     <link rel="icon" href="/icon.png" type="image/png">
     <link rel="apple-touch-icon" href="/icon.png">
-    <title>Microsoft Rewards Dashboard</title>
+    <title>微软奖励控制台 (Rewards Dashboard)</title>
     <link rel="stylesheet" href="/style.css" />
   </head>
   <body>
-    <a class="skip-link" href="#main">Skip to main content</a>
+    <a class="skip-link" href="#main">跳转到主内容</a>
 
     <header class="topbar">
-      <h1>🏅 Rewards Dashboard</h1>
+      <h1>🏅 微软奖励控制台</h1>
       <div class="topbar-right">
         <p
           id="statusBadge"
@@ -24,27 +24,27 @@
           aria-live="polite"
         >
           <span class="dot" aria-hidden="true"></span>
-          <span id="statusText">Connecting&hellip;</span>
+          <span id="statusText">正在连接&hellip;</span>
         </p>
         <div class="controls-group">
           <button
             type="button"
             id="modeToggle"
             class="icon-btn"
-            aria-label="Switch to dark mode"
-            title="Switch to dark mode"
+            aria-label="切换明暗主题"
+            title="切换明暗主题"
           >
             <span id="modeIcon" aria-hidden="true">&#9789;</span>
           </button>
           <div class="theme-select-wrapper">
-            <label for="themeSelect" class="visually-hidden">Theme</label>
+            <label for="themeSelect" class="visually-hidden">主题选择</label>
             <select id="themeSelect" class="theme-select"></select>
           </div>
         </div>
       </div>
     </header>
 
-    <nav class="tabbar" aria-label="Dashboard sections">
+    <nav class="tabbar" aria-label="控制台导航">
       <div class="tabbar-inner" id="tabBar" role="tablist"></div>
     </nav>
 
@@ -52,15 +52,15 @@
      depend on which section you happen to be looking at. -->
     <div class="control-strip">
       <div class="ctl-state">
-        <span id="ctlPill" class="pill pill-idle">Idle</span>
+        <span id="ctlPill" class="pill pill-idle">空闲</span>
         <span id="ctlDetail" class="ctl-detail">&ndash;</span>
       </div>
       <div class="ctl-actions">
         <button type="button" id="btnStart" class="btn btn-primary">
-          Start run
+          开始运行
         </button>
-        <button type="button" id="btnStop" class="btn">Stop</button>
-        <button type="button" id="btnRestart" class="btn">Restart</button>
+        <button type="button" id="btnStop" class="btn">停止</button>
+        <button type="button" id="btnRestart" class="btn">重启</button>
         <div class="ctl-more">
           <button
             type="button"
@@ -68,8 +68,8 @@
             class="btn btn-icon"
             aria-haspopup="true"
             aria-expanded="false"
-            aria-label="More actions"
-            title="More actions"
+            aria-label="更多操作"
+            title="更多操作"
           >
             &#8942;
           </button>
@@ -79,10 +79,10 @@
               id="btnForceStop"
               class="ctl-menu-item danger"
             >
-              Force stop (SIGKILL)
+              强制终止 (SIGKILL)
             </button>
             <button type="button" id="btnShutdown" class="ctl-menu-item danger">
-              Shut down control API
+              关闭控制 API
             </button>
           </div>
         </div>
@@ -96,7 +96,7 @@
         hidden
         aria-labelledby="login-codes-heading"
       >
-        <h2 id="login-codes-heading">&#128273; Login approval needed</h2>
+        <h2 id="login-codes-heading">&#128273; 需要登录审批</h2>
         <div id="loginCodesList" class="login-codes-list"></div>
       </section>
       <div
@@ -114,7 +114,7 @@
         <span class="foot-separator">•</span>
         <span id="footerScriptVersion"></span>
         <span class="foot-separator">•</span>
-        <span id="footerStatus">Connecting…</span>
+        <span id="footerStatus">正在连接…</span>
     </footer>
 
     <script src="/version.js"></script>

@@ -112,7 +112,7 @@ function renderSessions() {
   if (!list) return;
 
   if (!accountsPayload || !sessionsPayload) {
-    list.innerHTML = '<p class="empty-note" style="padding:1.25rem">Loading&hellip;</p>';
+    list.innerHTML = '<p class="empty-note" style="padding:1.25rem">正在加载&hellip;</p>';
     return;
   }
 
@@ -121,7 +121,7 @@ function renderSessions() {
   );
   if (!accounts.length) {
     list.innerHTML =
-      '<p class="empty-note" style="padding:1.25rem">No configured accounts found.</p>';
+      '<p class="empty-note" style="padding:1.25rem">未找到已配置的账号。</p>';
     return;
   }
 
@@ -161,7 +161,7 @@ function renderSessions() {
                 </div>
                 <button type="button" class="btn btn-danger btn-small" data-clear-session="${U.escapeAttr(a.email)}"
                     ${disabled ? "disabled" : ""} ${title ? `title="${U.escapeAttr(title)}"` : ""}>
-                    ${isClearing ? "Clearing\u2026" : "Clear sessions"}
+                    ${isClearing ? "正在清除…" : "清除会话"}
                 </button>
             </div>`;
     })
@@ -176,7 +176,7 @@ function renderSessions() {
 
 export default {
   id: "diagnostics",
-  label: "Diagnostics",
+  label: "诊断工具",
   interval: 30000,
 
   mount(root, ctx) {
@@ -185,7 +185,7 @@ export default {
     root.innerHTML = `
             <section class="panel" aria-labelledby="sessions-heading">
                 <div class="panel-head">
-                    <h2 id="sessions-heading">Session management</h2>
+                    <h2 id="sessions-heading">浏览器会话与登录状态</h2>
                     <span class="panel-sub">Clearing sessions can fix most common login issues</span>
                 </div>
                 <p class="notice notice--warn">
@@ -194,18 +194,18 @@ export default {
                     actually seeing login problems for that account.
                 </p>
                 <div class="session-card-list" id="sessionCardList">
-                    <p class="empty-note" style="padding:1.25rem">Loading&hellip;</p>
+                    <p class="empty-note" style="padding:1.25rem">正在加载&hellip;</p>
                 </div>
             </section>
 
             <section class="panel" aria-labelledby="diag-heading">
                 <div class="panel-head">
-                    <h2 id="diag-heading">Error captures</h2>
+                    <h2 id="diag-heading">错误捕获与诊断记录</h2>
                     <span class="panel-sub" id="diagMeta"></span>
-                    <button type="button" id="diagRefresh" class="btn btn-small">Refresh</button>
+                    <button type="button" id="diagRefresh" class="btn btn-small">刷新</button>
                 </div>
                 <ul class="diag-list" id="diagList">
-                    <li class="empty-note">Loading&hellip;</li>
+                    <li class="empty-note">正在加载&hellip;</li>
                 </ul>
             </section>`;
 

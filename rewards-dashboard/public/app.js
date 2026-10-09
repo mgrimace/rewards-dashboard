@@ -274,22 +274,22 @@ function renderStatusBadge() {
 
   if (!state.streamOpen && !s) {
     badge.classList.add("status-down");
-    els.statusText.textContent = "Dashboard server unreachable";
+    els.statusText.textContent = "控制台服务不可达";
   } else if (!s) {
     badge.classList.add("status-unknown");
-    els.statusText.textContent = "Connecting\u2026";
+    els.statusText.textContent = "正在连接…";
   } else if (!s.reachable) {
     badge.classList.add("status-down");
-    els.statusText.textContent = "Bot backend offline";
+    els.statusText.textContent = "脚本后端离线";
   } else if (s.authOk === false) {
     badge.classList.add("status-warn");
-    els.statusText.textContent = "Control API token rejected";
+    els.statusText.textContent = "控制 API Token 认证失败";
   } else if (s.botRunning) {
     badge.classList.add("status-live");
-    els.statusText.textContent = "Running now";
+    els.statusText.textContent = "正在运行";
   } else {
     badge.classList.add("status-live");
-    els.statusText.textContent = "Connected";
+    els.statusText.textContent = "已连接";
   }
   badge.title = s?.lastError || "";
 }
@@ -368,18 +368,18 @@ async function control(action, body, { confirm: confirmMsg, success } = {}) {
 
 function initControls() {
   els.btnStart.addEventListener("click", () =>
-    control("start", {}, { success: "Run started." }),
+    control("start", {}, { success: "已启动运行。" }),
   );
   els.btnStop.addEventListener("click", () =>
-    control("stop", { force: false }, { success: "Stop signal sent." }),
+    control("stop", { force: false }, { success: "已发送停止信号。" }),
   );
   els.btnRestart.addEventListener("click", () =>
     control(
       "restart",
       {},
       {
-        confirm: "Restart the bot? A run in progress will be stopped first.",
-        success: "Restarting\u2026",
+        confirm: "确定要重启吗？进行中的任务将被先停止。",
+        success: "正在重启…",
       },
     ),
   );
@@ -389,8 +389,8 @@ function initControls() {
       "stop",
       { force: true },
       {
-        confirm: "Force-kill the run (SIGKILL)? It gets no chance to clean up.",
-        success: "Force stop sent.",
+        confirm: "确定要强制终止 (SIGKILL) 吗？进程将无法执行退出清理。",
+        success: "已发送强制终止。",
       },
     );
   });
@@ -401,8 +401,8 @@ function initControls() {
       {},
       {
         confirm:
-          "Shut the control API down? The dashboard will go offline until you start it again on the bot host.",
-        success: "Shutdown sent.",
+          "确定要关闭控制 API 服务吗？控制台将离线，直至重新启动后端服务。",
+        success: "已发送关闭指令。",
       },
     );
   });
@@ -435,7 +435,7 @@ function setCodes(codes) {
     els.loginCodesAnnounce.textContent = fresh
       .map(
         (c) =>
-          `Login approval needed for ${c.userName}: select number ${c.number}. Expires in 60 seconds.`,
+          `${c.userName} 需要登录审批：请在手机微软验证器中选择数字 ${c.number}（60秒内有效）。`,
       )
       .join(" ");
   }
