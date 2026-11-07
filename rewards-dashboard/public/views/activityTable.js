@@ -13,6 +13,8 @@ import * as U from "../util.js";
 
 const STATES = {
   done: { label: "Done", icon: "ph-check-circle", cls: "done" },
+  // v4 reports points per source but never says an activity was completed.
+  reported: { label: "Reported", icon: "ph-receipt", cls: "reported" },
   partial: { label: "Partial", icon: "ph-circle-half", cls: "partial" },
   unverified: { label: "Unverified", icon: "ph-question", cls: "unverified" },
   unavailable: { label: "Not offered", icon: "ph-prohibit", cls: "unavailable" },
@@ -95,6 +97,7 @@ export function punchcardText(cards) {
 
 function groupDetail(g, day) {
   const parts = [];
+  if (g.id === "promotions" && day.schema === "v4") parts.push("Daily Set and More Promos are reported together");
   let sameCause = false;
   const active = g.items.length - g.counts.unavailable - g.counts["n/a"];
 
@@ -109,14 +112,16 @@ function groupDetail(g, day) {
     const live = g.items.filter((it) => it.state !== "unavailable" && it.state !== "n/a");
     sameCause = !g.counts.done && live.every((it) => it.cause === live[0].cause);
     parts.push(sameCause ? causeText(live[0]) : `${g.counts.done} of ${active} done`);
-  } else if (g.items.length === 1 && g.state !== "done") {
+  } else if (g.id === "edge-browsing" && day.schema === "v4" && g.items.length === 1 && g.items[0].message) {
+    parts.push(g.items[0].message); // e.g. "6/6 reports"
+  } else if (g.items.length === 1 && g.state !== "done" && g.state !== "reported") {
     parts.push(causeText(g.items[0]));
   }
   if (g.items.length > 1 && !sameCause) {
     if (g.counts.attention) parts.push(`${g.counts.attention} need${g.counts.attention === 1 ? "s" : ""} attention`);
     if (g.counts.unverified) parts.push(`${g.counts.unverified} unverified`);
   }
-  if (!g.pointsKnown && g.counts.done)
+  if (!g.pointsKnown && g.counts.done && !(g.id === "edge-browsing" && day.schema === "v4"))
     parts.push(
       g.estimatedPoints > 0
         ? `~${U.fmtNumber(g.estimatedPoints)} pts estimated from balance`
@@ -161,6 +166,14 @@ function groupRow(g, day, email, expanded) {
 
 const QUIET_STATES = new Set(["unavailable", "n/a"]);
 
+/** What a v4 day cannot show, tagged the way the config view tags v5-only options. */
+function v5OnlyRow() {
+  return `<tr class="act-row act-row--quiet">
+      <td colspan="4"><span class="cfg-version-tag">v5 only</span>
+        <span class="act-quiet-list">Daily Set / More Promos split \u00b7 per-activity status \u00b7 mobile search quota \u00b7 search perk \u00b7 balance estimates</span></td>
+    </tr>`;
+}
+
 function quietRow(groups) {
   if (!groups.length) return "";
   return `<tr class="act-row act-row--quiet">
@@ -182,7 +195,22 @@ function syntheticRows(day) {
       <td class="act-detail">${U.escapeHtml(text)}</td>
     </tr>`);
   }
-  const app = Number(day.earnable && day.earnable.app);
+  if (day.schema === "v4" && day.earnable) {
+    const e = day.earnable;
+    const bits = [["PC searches", e.browser], ["Mobile searches", e.mobile], ["App", e.app]]
+      .filter(([, v]) => Number.isFinite(v))
+      .map(([k, v]) => `${k} ${U.fmtNumber(v)}`);
+    if (bits.length) {
+      const text = bits.join(" \u00b7 ");
+      rows.push(`<tr class="act-row">
+      <td class="act-name"><span class="act-static">Available at start of run</span>${inlineDetail(text)}</td>
+      <td><span class="act-state act-state--na">\u2014</span></td>
+      <td class="act-num"><span class="act-pts act-pts--zero">\u2013</span></td>
+      <td class="act-detail">${U.escapeHtml(text)}</td>
+    </tr>`);
+    }
+  }
+  const app = day.schema === "v4" ? 0 : Number(day.earnable && day.earnable.app);
   if (app > 0) {
     rows.push(`<tr class="act-row act-row--pending">
       <td class="act-name"><span class="act-static">App Promotions</span>${inlineDetail(`${U.fmtNumber(app)} pts available in the mobile app`)}</td>
@@ -220,6 +248,8 @@ function totals(day) {
 }
 
 function streakBoard(day, now, isLatest) {
+  if (day.schema === "v4")
+    return '<p class="act-empty">Streak board <span class="cfg-version-tag">v5 only</span></p>';
   if (!day.streaks.length)
     return '<p class="act-empty">No streak data was captured for this day.</p>';
   const own = Date.parse(day.resetAt);
@@ -279,6 +309,7 @@ export function verdictText(day) {
     case "attention": return `Needs attention \u00b7 ${v.attention}`;
     case "pending": return `${v.pending} pending`;
     case "not-run": return `Not run \u00b7 ${day.deferral ? day.deferral.label : "skipped"}`;
+    case "basic": return "Basic view \u00b7 v4";
     default: return "";
   }
 }
@@ -289,6 +320,7 @@ const VERDICT_CLASS = {
   attention: "attention",
   pending: "pending",
   "not-run": "attention",
+  basic: "reported",
 };
 
 export function verdictChip(day) {
@@ -297,8 +329,10 @@ export function verdictChip(day) {
 }
 
 /** Amber chip for an account that has no v5 activity data yet. */
-export function migrationChip() {
-  return stateChip("partial", "Migration completes on the first full v5 run", "ph-hourglass-medium");
+export function migrationChip(major) {
+  return major === 4
+    ? stateChip("pending", "Appears after the next run", "ph-hourglass-medium")
+    : stateChip("partial", "Migration completes on the first full v5 run", "ph-hourglass-medium");
 }
 
 /** Red chip when the latest run did not (fully) run the account. */
@@ -316,7 +350,14 @@ export function summaryChips(day) {
 const notice = (kind, icon, title, text) =>
   `<div class="act-notice act-notice--${kind}" role="status"><i class="ph ${icon}" aria-hidden="true"></i><div><strong>${U.escapeHtml(title)}</strong>${text ? `<p>${U.escapeHtml(text)}</p>` : ""}</div></div>`;
 
-export function renderMigration() {
+export function renderMigration(major) {
+  if (major === 4)
+    return notice(
+      "info",
+      "ph-info",
+      "The basic view appears after this account\u2019s next run.",
+      "On v4 it shows points per source, the search split and points available. v5 adds per-activity status, streaks and more.",
+    );
   return notice(
     "warn",
     "ph-hourglass-medium",
@@ -368,7 +409,8 @@ export function renderActivity(days, { email, selectedDay, expanded, now = Date.
       .map((g) => groupRow(g, day, email, expanded))
       .join("") +
     syntheticRows(day) +
-    quietRow(day.groups.filter((g) => QUIET_STATES.has(g.state)));
+    quietRow(day.groups.filter((g) => QUIET_STATES.has(g.state))) +
+    (day.schema === "v4" ? v5OnlyRow() : "");
 
   const grid = `<div class="act-grid">
       <section class="act-card" aria-label="Points breakdown">

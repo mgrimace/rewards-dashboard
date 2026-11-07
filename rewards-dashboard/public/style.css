@@ -3500,3 +3500,16 @@ tbody tr:hover {
 .act-notice--error > .ph {
   color: var(--negative);
 }
+
+/* v4 basic view: reported points are neutral, not "done" */
+.act-state--reported {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+}
+.act-notice--info {
+  background: var(--accent-subtle);
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
+}
+.act-notice--info > .ph {
+  color: var(--accent);
+}

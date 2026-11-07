@@ -21,7 +21,9 @@
 const GROUPS = {
   search: { label: "Searches", order: 10 },
   "mobile-search": { label: "Mobile search quota", order: 11 },
+  "account-run": { label: "Account run", order: 1 },
   "daily-set": { label: "Daily Set", order: 20 },
+  promotions: { label: "Promotions", order: 25 }, // v4: Daily Set + More Promos are not separable
   "more-promotions": { label: "More Promos", order: 30 },
   punchcards: { label: "Punch Cards", order: 40 },
   "read-to-earn": { label: "Read to Earn", order: 50 },
@@ -31,6 +33,7 @@ const GROUPS = {
   "visual-search": { label: "Visual Search", order: 80 },
   "streak-protection": { label: "Streak Protection", order: 90 },
   "edge-browsing": { label: "Edge Browsing", order: 100 },
+  "app-rewards": { label: "App Rewards", order: 85 },
   "search-perk": { label: "Search Perk", order: 110 },
   other: { label: "Other", order: 900 },
 };
@@ -43,6 +46,12 @@ const ACTIVITY_GROUP = {
   "more-promotions": "more-promotions",
   "punchcard-child": "punchcards",
   punchcard: "punchcards", // the parent punch card pass (beta6)
+  "v4-account": "account-run", // v4 (script < 5) adapter ids, see v4RunToEntries()
+  "v4-bonus-search": "search",
+  "v4-search-on-bing": "promotions",
+  "v4-url-reward": "promotions",
+  "v4-claim-reward": "bonus-claim",
+  "v4-app-reward": "app-rewards",
   "browser-earn": "earn-page", // the /earn page pass (beta6)
   "read-to-earn": "read-to-earn",
   "daily-check-in": "daily-check-in",
@@ -106,6 +115,7 @@ function classifyDeferral(account) {
 
 /** Runs from before v5 carry no per-activity completion data at all. */
 function hasStructuredData(account) {
+  if (account && account.schema === "v4") return true; // built from the v4 run summary
   const c = (account && account.completion) || {};
   return Boolean(c.counts) || DETAIL_LISTS.some((k) => (c[k] || []).length > 0);
 }
@@ -126,6 +136,9 @@ const isNoCardPromo = (d) =>
  * state: done | pending | unverified | attention | unavailable | n/a
  */
 function classifyDetail(d, ctx = {}) {
+  // v4 only reports points per source; it never says whether an activity was
+  // completed, so these are "reported", not "done".
+  if (d.status === "reported") return { state: "reported", cause: "reported" };
   switch (d.category) {
     case "completed":
       return { state: "done", cause: "confirmed" };
@@ -396,7 +409,7 @@ function groupItems(items) {
   }
 
   for (const g of groups.values()) {
-    const counts = { done: 0, pending: 0, unverified: 0, attention: 0, unavailable: 0, "n/a": 0 };
+    const counts = { done: 0, reported: 0, pending: 0, unverified: 0, attention: 0, unavailable: 0, "n/a": 0 };
     for (const it of g.items) counts[it.state] += 1;
     g.counts = counts;
     g.points = g.items.reduce((s, it) => s + it.points, 0);
@@ -409,7 +422,9 @@ function groupItems(items) {
       g.state = counts.unavailable ? "unavailable" : "n/a";
     } else if (active.every((it) => it.state === "done")) {
       g.state = "done";
-    } else if (active.some((it) => it.state === "done")) {
+    } else if (active.every((it) => it.state === "reported")) {
+      g.state = "reported";
+    } else if (active.some((it) => it.state === "done" || it.state === "reported")) {
       g.state = "partial";
     } else {
       g.state = SEVERITY.find((s) => counts[s]) || "unverified";
@@ -458,6 +473,9 @@ function buildAccountDay(email, day, entries) {
   const verdict = dayVerdict(groups);
   // Nothing ran and the script says why: that is not a "complete" day.
   if (!groups.length && deferral) verdict.state = "not-run";
+  const schema = last.schema === "v4" ? "v4" : "v5";
+  // v4 cannot say whether activities were completed, so never claim "complete".
+  if (schema === "v4" && (verdict.state === "complete" || verdict.state === "complete-unverified")) verdict.state = "basic";
   const withSearch = entries.filter((e) => e.account.searchSummary);
   const withEarnable = entries.filter((e) => e.account.earnable);
 
@@ -465,6 +483,7 @@ function buildAccountDay(email, day, entries) {
     email,
     day,
     runs: entries.map((e) => e.runId),
+    schema,
     groups,
     unmapped,
     verdict,
@@ -535,11 +554,127 @@ function compactDay(day) {
         if (it.estimatedPoints) out.estimatedPoints = it.estimatedPoints;
         // The cause already says it for confirmed items; keep the script's
         // wording only where the UI may need it as a fallback.
-        if (it.state !== "done" && it.message) out.message = it.message;
+        if (it.message && (it.state !== "done" || it.activity === "edge-browsing")) out.message = it.message;
         return out;
       }),
     })),
   };
+}
+
+
+// ---------------------------------------------------------------------------
+// v4 (script < 5). The v4 Control API only parses log text into per-source
+// point totals (scripts/api/logParser.js), so a v4 "day" is a basic view: points
+// per source, the search split, points available at the start of the run, streak
+// protection and Edge browsing. Daily Set and More Promos both arrive as
+// "urlReward" and cannot be separated here. v4RunToEntries() converts a run
+// summary into the same entries the v5 path produces, so the rest of the
+// pipeline (grouping, reconciliation, UI) is shared.
+// ---------------------------------------------------------------------------
+const V4_SOURCES = {
+  search: { activity: "search", label: "Search" },
+  bonus: { activity: "v4-bonus-search", label: "Bonus search" },
+  searchOnBing: { activity: "v4-search-on-bing", label: "Search on Bing" },
+  urlReward: { activity: "v4-url-reward", label: "Promotions" },
+  read: { activity: "read-to-earn", label: "Read to Earn" },
+  checkIn: { activity: "daily-check-in", label: "Daily check-in" },
+  claimBonus: { activity: "doClaimBonusPoints", label: "Bonus claim" },
+  claimReward: { activity: "v4-claim-reward", label: "Reward claim" },
+  visualSearch: { activity: "visual-search", label: "Visual search" },
+  appReward: { activity: "v4-app-reward", label: "App reward" },
+  punchcard: { activity: "punchcard-child", label: "Punch card" },
+};
+
+const V4_SKIP_REASONS = { Fraud_UserWarning_BotScore_UX: "Microsoft bot-score warning detected" };
+const v4SkipError = (reason) => V4_SKIP_REASONS[reason] || `Skipped: ${reason}`;
+
+/** v4's Edge browsing progress, expressed as one completion item. */
+function v4EdgeItem(edge) {
+  const progress = edge.reportsTotal != null ? `${edge.reportsCompleted ?? 0}/${edge.reportsTotal} reports` : "";
+  const base = { activity: "edge-browsing", label: "Edge browsing", pointsGained: 0, pointsKnown: false, message: progress };
+  switch (edge.status) {
+    case "complete": return { ...base, category: "completed", status: "confirmed", reason: "offer-complete" };
+    case "skipped": return { ...base, category: "unavailable", status: "skipped", reason: "offer-unavailable" };
+    case "failed":
+    case "cancelled": return { ...base, category: "incomplete", status: "failed", reason: "activity-error" };
+    case "partial": return { ...base, category: "incomplete", status: "unconfirmed", reason: "offer-not-complete" };
+    default: return { ...base, category: "incomplete", status: "unconfirmed", reason: "offer-not-confirmed" };
+  }
+}
+
+/**
+ * @param {{run:object, endedAt:string, runId:string, skips?:Map<string,{reason:string}>}} input
+ *   run = the Control API's run summary (/status .run), endedAt = lastExit.at
+ * @returns entries shaped like normalizeRun()'s, with account.schema === "v4"
+ */
+function v4RunToEntries({ run, endedAt, runId, skips }) {
+  return ((run && run.accounts) || [])
+    .filter((a) => a && a.email)
+    .map((a) => {
+      const email = normEmail(a.email);
+      const by = (a.live && a.live.bySource) || {};
+      const completed = [];
+      let attributed = 0;
+      for (const [src, pts] of Object.entries(by)) {
+        if (!(pts > 0)) continue;
+        const known = V4_SOURCES[src] || { activity: `v4-${src}`, label: src };
+        completed.push({ ...known, category: "completed", status: "reported", reason: "reported", pointsGained: pts, pointsKnown: true });
+        attributed += pts;
+      }
+      const collected = typeof a.collectedPoints === "number" ? a.collectedPoints : (a.live && a.live.gained) || 0;
+      const incomplete = [], unavailable = [];
+
+      let status = a.success === true ? "completed" : a.success === false ? "failed" : "unknown";
+      let error = a.error || null;
+      const skip = skips && skips.get(email);
+      if (skip) {
+        status = "skipped";
+        error = v4SkipError(skip.reason);
+      } else if (status === "failed" && error) {
+        incomplete.push({ activity: "v4-account", label: "Account run", category: "incomplete", status: "failed", reason: "activity-error", message: error, pointsGained: 0, pointsKnown: false });
+      }
+      if (a.edgeBrowsing) {
+        const item = v4EdgeItem(a.edgeBrowsing);
+        (item.category === "completed" ? completed : item.category === "unavailable" ? unavailable : incomplete).push(item);
+      }
+      return {
+        runId,
+        startedAt: endedAt,
+        endedAt,
+        email,
+        account: {
+          schema: "v4",
+          email,
+          status,
+          success: a.success ?? null,
+          error,
+          durationSeconds: a.durationSeconds ?? null,
+          initialPoints: a.initialPoints ?? null,
+          currentBalance: a.finalPoints ?? (a.live && a.live.balance) ?? null,
+          collected,
+          bySource: by,
+          unattributed: collected - attributed,
+          earnable: a.earnable ?? undefined,
+          searchSummary: a.searchSummary ?? undefined,
+          streakProtection: a.streakProtection ?? null,
+          edgeBrowsing: a.edgeBrowsing ?? null,
+          streaks: [],
+          completion: {
+            counts: { completed: completed.length, incomplete: incomplete.length, unavailable: unavailable.length, notApplicable: 0 },
+            completed,
+            incomplete,
+            unavailable,
+            notApplicable: [],
+          },
+        },
+      };
+    });
+}
+
+/** Major version of the script ("4.3.2" -> 4), or null when unknown. */
+function scriptMajorOf(status) {
+  const n = parseInt(String((status && status.version) || "").split(".")[0], 10);
+  return Number.isFinite(n) ? n : null;
 }
 
 /**
@@ -582,6 +717,9 @@ module.exports = {
   NO_CARD_PROMOS,
   classifyDeferral,
   hasStructuredData,
+  v4RunToEntries,
+  v4SkipError,
+  scriptMajorOf,
   rewardsDayOf,
   normalizePunchcards,
   PUNCHCARD_KEYS,

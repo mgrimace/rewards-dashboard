@@ -50,7 +50,10 @@ const log = (level, msg) => {
 
 const hub = new EventHub({ client, replay: LOG_REPLAY, log });
 // Structured per-activity data from the Control API (/history + /status extras).
-const activity = new ActivityStore(store.db, { log });
+const activity = new ActivityStore(store.db, {
+  log,
+  resetHourUtc: process.env.ACTIVITY_RESET_HOUR_UTC ? Number(process.env.ACTIVITY_RESET_HOUR_UTC) : null,
+});
 
 const scheduler = new Scheduler({
   client,
@@ -162,6 +165,7 @@ hub.on("entry", (entry) => {
     if (event) {
       // Card progress only exists in this log line; idempotent, so replays are harmless.
       if (event.kind === "punchcard-progress") activity.recordPunchcard(event);
+      if (event.kind === "account-skip-v4") activity.recordSkip(event);
       store.apply(event);
       hub.broadcast("state", currentState());
       if (event.kind === "login-number") {

@@ -320,8 +320,8 @@ function renderAccountPanel(a, live) {
     });
     activitySummary = summaryChips(pickDay(actDays, selectedActivityDay.get(emailKey)));
   } else if (activityPayload?.synced) {
-    activityBody = renderMigration();
-    activitySummary = migrationChip();
+    activityBody = renderMigration(activityPayload.scriptMajor);
+    activitySummary = migrationChip(activityPayload.scriptMajor);
   } else if (activityPayload?.syncError || activityError) {
     activityBody = renderLoadError(activityPayload?.syncError || activityError);
   } else {

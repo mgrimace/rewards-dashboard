@@ -25,6 +25,9 @@ const {
   rewardsDayOf,
   classifyDeferral,
   hasStructuredData,
+  v4RunToEntries,
+  v4SkipError,
+  scriptMajorOf,
   PUNCHCARD_KEYS,
 } = require("./activityModel");
 
@@ -71,6 +74,7 @@ function trimDetail(d) {
 function trimAccount(a) {
   const completion = a.completion || {};
   const out = {
+    schema: a.schema ?? null,
     level: a.level ?? null,
     pointsProgress: a.pointsProgress ?? null,
     pointsRemaining: a.pointsRemaining ?? null,
@@ -108,7 +112,7 @@ class ActivityStore {
    * @param {import("node:sqlite").DatabaseSync} db  the dashboard's existing DB
    * @param {{retentionDays?: number, log?: Function}} [opts]
    */
-  constructor(db, { retentionDays = 120, log = () => {} } = {}) {
+  constructor(db, { retentionDays = 120, log = () => {}, resetHourUtc = null } = {}) {
     this.db = db;
     this.retentionDays = retentionDays;
     this.log = log;
@@ -148,8 +152,14 @@ class ActivityStore {
          WHERE email = ? AND day <= ? AND day >= ? ORDER BY day DESC, seen_at DESC`,
       ),
       pcPrune: db.prepare("DELETE FROM punchcard_progress WHERE day < ?"),
+      latestForEmail: db.prepare(
+        "SELECT run_id, snapshot FROM run_account_snapshots WHERE email = ? ORDER BY ended_at DESC LIMIT 1",
+      ),
     };
     // The hour (UTC) the Rewards day rolls over, learned from stored runs.
+    // v5 reports its own reset time; for v4 (and runs without one) use this hour,
+    // which can be set with ACTIVITY_RESET_HOUR_UTC if the 08:00Z default is wrong.
+    this._configuredResetHour = Number.isInteger(resetHourUtc) && resetHourUtc >= 0 && resetHourUtc < 24 ? resetHourUtc : null;
     this._resetHour = this._learnResetHour();
     this._seenRuns = new Set(); // run ids already ingested, even if empty
     this._pendingExtras = new Map(); // runId -> status accounts, if history lags
@@ -157,6 +167,8 @@ class ActivityStore {
     this._retryAt = 0;
     this.booted = false;
     this.syncError = null; // message of the last failed sync, until one succeeds
+    this.scriptMajor = null; // 4 or 5, from /status .version
+    this._skips = new Map(); // v4: email -> {reason, ts} from ACCOUNT-SKIP lines, until the run is stored
     // Bumped whenever stored data changes; drives the cached payload + ETag.
     // The epoch keeps ETags unique across restarts.
     this.version = 0;
@@ -170,7 +182,7 @@ class ActivityStore {
       const at = row && Date.parse(JSON.parse(row.snapshot).account.resetAt);
       if (Number.isFinite(at)) return new Date(at).getUTCHours();
     } catch { /* fall back to the default */ }
-    return 8;
+    return this._configuredResetHour ?? 8;
   }
 
   _noteResetAt(resetAt) {
@@ -227,6 +239,74 @@ class ActivityStore {
     return latest && latest.done < latest.total ? [shape(latest, latest.day)] : [];
   }
 
+  /** Insert one (run, account) snapshot; returns 1 if it was new. */
+  _store(runId, entry) {
+    const stored = {
+      runId,
+      startedAt: entry.startedAt,
+      endedAt: entry.endedAt,
+      email: entry.email,
+      account: trimAccount(entry.account),
+    };
+    const res = this.stmts.insert.run(
+      runId,
+      entry.email,
+      entry.endedAt || entry.startedAt || new Date().toISOString(),
+      JSON.stringify(stored),
+    );
+    return Number(res.changes);
+  }
+
+  // -- v4 (script < 5) -----------------------------------------------------
+
+  /** v4 logs "Skipped account: ... | reason=..." and its Control API ignores it. */
+  recordSkip(ev) {
+    if (!ev || !ev.email) return false;
+    const at = Date.parse(ev.ts);
+    const ts = Number.isFinite(at) ? at : Date.now();
+    for (const [k, v] of this._skips) if (Date.now() - v.ts > 36 * 3600e3) this._skips.delete(k);
+    // The run may already be stored (after a dashboard restart the replayed log
+    // line can arrive after the first sync): correct that snapshot instead.
+    const row = this.stmts.latestForEmail.get(ev.email);
+    if (row) {
+      const stored = JSON.parse(row.snapshot);
+      const a = stored.account;
+      if (a.schema === "v4" && a.status === "unknown" && Date.parse(stored.endedAt) >= ts - 1000) {
+        a.status = "skipped";
+        a.error = v4SkipError(ev.reason);
+        this.stmts.update.run(JSON.stringify(stored), row.run_id, ev.email);
+        this.version++;
+        return true;
+      }
+    }
+    this._skips.set(ev.email, { reason: ev.reason, ts });
+    return true;
+  }
+
+  /**
+   * Store the finished run from /status. v4's /history keeps only per-account
+   * totals, while its /status run summary still holds the per-source points,
+   * earnable and search split, so the dashboard has to capture it itself.
+   * Idempotent: the run is keyed by when it ended.
+   */
+  ingestV4Run(status) {
+    const run = status && status.run;
+    const endedAt = status && status.lastExit && status.lastExit.at;
+    if (!run || !endedAt || !(run.accounts || []).length) return 0;
+    if (!run.finished && status.state !== "idle") return 0; // still running
+    const runId = `v4:${endedAt}`;
+    if (this._seenRuns.has(runId)) return 0;
+    this._seenRuns.add(runId);
+    const entries = v4RunToEntries({ run, endedAt, runId, skips: this._skips });
+    let added = 0;
+    for (const e of entries) {
+      added += this._store(runId, e);
+      this._skips.delete(e.email);
+    }
+    if (added) this.version++;
+    return added;
+  }
+
   get size() {
     return this.stmts.count.get().n;
   }
@@ -245,20 +325,7 @@ class ActivityStore {
         if (!hasStructuredData(entry.account) && !classifyDeferral(entry.account)) continue;
         const id = runId || `${rec.startedAt}`;
         this._noteResetAt(entry.account.resetAt);
-        const stored = {
-          runId: id,
-          startedAt: entry.startedAt,
-          endedAt: entry.endedAt,
-          email: entry.email,
-          account: trimAccount(entry.account),
-        };
-        const res = this.stmts.insert.run(
-          id,
-          entry.email,
-          entry.endedAt || entry.startedAt || new Date().toISOString(),
-          JSON.stringify(stored),
-        );
-        added += Number(res.changes);
+        added += this._store(id, entry);
       }
       if (added) this.version++;
       if (runId && this._pendingExtras.has(runId)) {
@@ -327,7 +394,7 @@ class ActivityStore {
     for (const [email, list] of Object.entries(full.accounts))
       accounts[email] = list.map(compactDay);
     // synced/syncError let the page tell "no data yet" apart from "not synced".
-    const json = Buffer.from(JSON.stringify({ accounts, synced: this.booted, syncError: this.syncError }));
+    const json = Buffer.from(JSON.stringify({ accounts, synced: this.booted, syncError: this.syncError, scriptMajor: this.scriptMajor }));
     const built = {
       version: this.version,
       hour,
@@ -348,7 +415,7 @@ class ActivityStore {
     const entries = this.stmts
       .since.all(cutoff)
       .map((r) => JSON.parse(r.snapshot));
-    const built = buildDaysFromEntries(entries);
+    const built = buildDaysFromEntries(entries, { resetHourUtc: this._resetHour });
     const accounts = {};
     for (const [email, byDay] of built) {
       for (const d of byDay.values())
@@ -365,6 +432,11 @@ class ActivityStore {
   needsSync(status) {
     if (Date.now() < this._retryAt) return false; // back off after a failure
     if (!this.booted) return true;
+    const major = scriptMajorOf(status);
+    if (major && major < 5) {
+      const at = status.lastExit && status.lastExit.at;
+      return Boolean(status.state === "idle" && at && !this._seenRuns.has(`v4:${at}`));
+    }
     const id = status && status.lastExit && status.lastExit.runId;
     return Boolean(id && !this._seenRuns.has(id));
   }
@@ -375,8 +447,21 @@ class ActivityStore {
    */
   sync(client, status, { limit = 20 } = {}) {
     if (this._inFlight) return this._inFlight;
-    this._inFlight = (async () => {
+    const work = (async () => {
       try {
+        const major = scriptMajorOf(status);
+        if (major && major !== this.scriptMajor) {
+          this.scriptMajor = major;
+          this.version++;
+        }
+        if (major && major < 5) {
+          const added = this.ingestV4Run(status);
+          if (!this.booted || this.syncError) this.version++;
+          this.booted = true;
+          this.syncError = null;
+          this._retryAt = 0;
+          return { added };
+        }
         const data = await client.get(`/history?limit=${limit}`);
         const added = this.ingestRecords(data.runs || []);
         const run = status && status.run;
@@ -399,10 +484,13 @@ class ActivityStore {
           this.version++;
         }
         throw e;
-      } finally {
-        this._inFlight = null;
       }
     })();
+    // Clear in a callback, not inside the async function: a path with nothing
+    // to await (v4) would otherwise finish, and clear this, before it is assigned.
+    this._inFlight = work.finally(() => {
+      this._inFlight = null;
+    });
     return this._inFlight;
   }
 

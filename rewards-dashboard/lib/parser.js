@@ -249,6 +249,11 @@ function parseLine(rawLine) {
           activityCounts: parseActivityCounts(am[8]),
         };
       }
+      // v4: "Skipped account: <email> | reason=Fraud_UserWarning_BotScore_UX | ..."
+      // (its Control API never parses this line, so the dashboard keeps it).
+      const sk = /^Skipped account: (\S+) \| reason=(\S+)/.exec(message);
+      if (sk)
+        return { ...base, kind: "account-skip-v4", email: sk[1].trim().toLowerCase(), reason: sk[2] };
       break;
     }
     case "ACTIVITY-RESULT": {
