@@ -3006,6 +3006,51 @@ tbody tr:hover {
   .acc-run-button .acc-run-icon {
     display: inline-block;
   }
+
+  /* Activity summary chips: icons and counts only. The words stay for screen
+     readers (same technique as .visually-hidden) and in the tooltip. */
+  .act-summary-verdict {
+    flex-wrap: nowrap;
+    gap: var(--space-4);
+    margin-left: var(--space-6);
+  }
+  .act-summary-verdict .act-state {
+    gap: var(--space-2);
+    padding-inline: var(--space-6);
+    font-size: var(--font-xs);
+    line-height: var(--leading-none); /* icon-only and count chips share one height */
+  }
+  .act-summary-verdict .act-state-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+  .act-summary-verdict .act-icon-mobile {
+    display: inline-block;
+  }
+  .act-summary-verdict .act-state-short {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+  }
+
+  /* An open Activity panel needs the full card width, so it moves to its own
+     row; the protection icon and delete button stay on the row above. */
+  .account-secondary-row > .account-protection-rail {
+    grid-column: 1;
+    grid-row: 1;
+  }
+  .account-secondary-row > .acc-feature-actions {
+    grid-column: 3;
+    grid-row: 1;
+  }
+  .account-secondary-row > .account-feature-details[open] {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
 }
 
 
@@ -3126,6 +3171,13 @@ tbody tr:hover {
   letter-spacing: 0.04em;
   text-transform: uppercase;
   color: var(--accent);
+}
+
+/* Summary chips collapse to icons on mobile; these parts only appear there
+   (see the Accounts mobile block). */
+.act-state-short,
+.act-icon-mobile {
+  display: none;
 }
 
 /* Status chips: label + icon, never colour alone */
@@ -3423,25 +3475,6 @@ tbody tr:hover {
 .act-summary-verdict .act-state {
   white-space: normal;
 }
-
-
-/* Phones: an open Activity panel needs the full card width, so it moves to
-   its own row; the protection icon and delete button stay on the row above. */
-@media (max-width: 768px) {
-  .account-secondary-row > .account-protection-rail {
-    grid-column: 1;
-    grid-row: 1;
-  }
-  .account-secondary-row > .acc-feature-actions {
-    grid-column: 3;
-    grid-row: 1;
-  }
-  .account-secondary-row > .account-feature-details[open] {
-    grid-column: 1 / -1;
-    grid-row: 2;
-  }
-}
-
 /* Beta6 additions: estimated points and the pending streak step */
 .act-pts--est {
   color: var(--text-muted);

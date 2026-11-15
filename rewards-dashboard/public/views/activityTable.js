@@ -61,9 +61,23 @@ const causeText = (item) =>
     ? `Failed: ${shorten(item.message, 140)}`
     : CAUSE_TEXT[item.cause] || item.message || humanize(item.cause || item.reason);
 
-export function stateChip(state, labelOverride, iconOverride) {
+/**
+ * A chip that collapses to icons on mobile (see the Accounts mobile block in
+ * style.css). The words stay in the DOM for screen readers and in the tooltip;
+ * `short` is trusted HTML (an icon and/or a count) shown beside the icon when
+ * collapsed. `iconAlways: false` keeps the icon mobile-only, so a chip that has
+ * never had one does not gain it on desktop.
+ */
+function compactChip(cls, label, icon, short, iconAlways) {
+  return `<span class="act-state act-state--${cls}" title="${U.escapeAttr(label)}"><i class="ph ${icon}${iconAlways ? "" : " act-icon-mobile"}" aria-hidden="true"></i><span class="act-state-label">${U.escapeHtml(label)}</span>${short ? `<span class="act-state-short" aria-hidden="true">${short}</span>` : ""}</span>`;
+}
+
+export function stateChip(state, labelOverride, iconOverride, short) {
   const s = STATES[state] || STATES["n/a"];
-  return `<span class="act-state act-state--${s.cls}"><i class="ph ${iconOverride || s.icon}" aria-hidden="true"></i>${U.escapeHtml(labelOverride || s.label)}</span>`;
+  const label = labelOverride || s.label;
+  const icon = iconOverride || s.icon;
+  if (short !== undefined) return compactChip(s.cls, label, icon, short, true);
+  return `<span class="act-state act-state--${s.cls}"><i class="ph ${icon}" aria-hidden="true"></i>${U.escapeHtml(label)}</span>`;
 }
 
 const ESTIMATE_HINT =
@@ -323,23 +337,39 @@ const VERDICT_CLASS = {
   basic: "reported",
 };
 
+const unverifiedIcon = `<i class="ph ${STATES.unverified.icon}" aria-hidden="true"></i>`;
+
+// Collapsed (mobile) form of each verdict: [icon, short]. "Complete" is a check
+// alone; "Complete \u00b7 4 unverifiable" is a check plus the unverified icon and
+// 4; "Needs attention \u00b7 1" is a warning icon plus 1.
 export function verdictChip(day) {
-  const cls = VERDICT_CLASS[day.verdict.state] || "na";
-  return `<span class="act-state act-state--${cls}">${U.escapeHtml(verdictText(day))}</span>`;
+  const v = day.verdict;
+  const cls = VERDICT_CLASS[v.state] || "na";
+  const text = verdictText(day);
+  const compact = {
+    complete: [STATES.done.icon, ""],
+    "complete-unverified": [STATES.done.icon, `${unverifiedIcon}${Number(v.unverified)}`],
+    attention: [STATES.attention.icon, String(Number(v.attention))],
+    pending: [STATES.pending.icon, String(Number(v.pending))],
+    "not-run": ["ph-prohibit", ""],
+    basic: [STATES.reported.icon, "v4"],
+  }[v.state];
+  if (!compact) return `<span class="act-state act-state--${cls}">${U.escapeHtml(text)}</span>`;
+  return compactChip(cls, text, compact[0], compact[1], false);
 }
 
 /** Amber chip for an account that has no v5 activity data yet. */
 export function migrationChip(major) {
   return major === 4
-    ? stateChip("pending", "Appears after the next run", "ph-hourglass-medium")
-    : stateChip("partial", "Migration completes on the first full v5 run", "ph-hourglass-medium");
+    ? stateChip("pending", "Appears after the next run", "ph-hourglass-medium", "")
+    : stateChip("partial", "Migration completes on the first full v5 run", "ph-hourglass-medium", "");
 }
 
 /** Red chip when the latest run did not (fully) run the account. */
 function deferralChip(day) {
   const d = day.deferral;
   if (!d) return "";
-  return stateChip("attention", `${d.cutShort ? "Run stopped early" : "Latest run skipped"} \u00b7 ${d.label}`, "ph-prohibit");
+  return stateChip("attention", `${d.cutShort ? "Run stopped early" : "Latest run skipped"} \u00b7 ${d.label}`, "ph-prohibit", "");
 }
 
 /** What the collapsed "Activity Status" line shows: the verdict, plus any deferral. */
