@@ -2986,9 +2986,13 @@ tbody tr:hover {
   #accountsSelectedCount {
     white-space: nowrap;
   }
+  /* Icon-only buttons are square: the height comes from the button rules
+     (taller on touch, see the pointer: coarse rule), so derive the width from it
+     instead of pinning a width that disagrees with it. */
   .accounts-run-selected {
-    width: var(--control-md);
-    flex: 0 0 var(--control-md);
+    width: auto;
+    aspect-ratio: 1 / 1;
+    flex: 0 0 auto;
     padding: 0;
   }
   .accounts-run-selected-icon {
@@ -3000,8 +3004,14 @@ tbody tr:hover {
     display: none;
   }
   .acc-run-button {
-    width: var(--control-md);
+    width: auto;
+    aspect-ratio: 1 / 1;
     padding: 0;
+  }
+  .acc-feature-actions .btn-icon {
+    width: auto;
+    aspect-ratio: 1 / 1;
+    padding: 0; /* .btn-small's padding would otherwise set a minimum width wider than the height */
   }
   .acc-run-button .acc-run-icon {
     display: inline-block;
