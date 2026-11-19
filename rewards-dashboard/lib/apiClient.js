@@ -3,6 +3,7 @@
 const http = require("node:http");
 const https = require("node:https");
 const { URL } = require("node:url");
+const { credentialRedactor } = require("./redact");
 
 const DEFAULT_TIMEOUT_MS = 10000;
 
@@ -19,6 +20,7 @@ class ControlApiClient {
   constructor({ baseUrl, token }) {
     this.baseUrl = String(baseUrl || "").replace(/\/+$/, "");
     this.token = token || null;
+    this.redact = credentialRedactor(this.token);
   }
 
   _target(pathAndQuery) {
@@ -41,7 +43,7 @@ class ControlApiClient {
       try {
         target = this._target(pathAndQuery);
       } catch (e) {
-        return reject(new ApiError(`Bad Control API URL: ${e.message}`));
+        return reject(new ApiError(`Bad Control API URL: ${this.redact(e.message)}`));
       }
 
       const payload =
@@ -72,17 +74,25 @@ class ControlApiClient {
                 parsed = null;
               }
             }
+            if (parsed !== null) {
+              try {
+                parsed = this.redact(parsed);
+              } catch {
+                return reject(new ApiError("Unable to sanitize Control API response."));
+              }
+            }
             const status = res.statusCode || 0;
             if (status >= 400) {
               const message =
                 (parsed && (parsed.error || parsed.message)) ||
-                `Control API ${target.pathname} -> ${status}`;
+                this.redact(`Control API ${target.pathname} -> ${status}`);
               return reject(
                 new ApiError(message, { statusCode: status, body: parsed }),
               );
             }
             resolve(parsed ?? {});
           });
+          res.on("error", (err) => reject(new ApiError(this.redact(err.message))));
         },
       );
 
@@ -90,7 +100,7 @@ class ControlApiClient {
         req.destroy(new ApiError("Control API request timed out")),
       );
       req.on("error", (err) =>
-        reject(err instanceof ApiError ? err : new ApiError(err.message)),
+        reject(err instanceof ApiError ? err : new ApiError(this.redact(err.message))),
       );
       if (payload) req.write(payload);
       req.end();
@@ -116,7 +126,7 @@ class ControlApiClient {
       try {
         target = this._target(pathAndQuery);
       } catch (e) {
-        return reject(new ApiError(`Bad Control API URL: ${e.message}`));
+        return reject(new ApiError(`Bad Control API URL: ${this.redact(e.message)}`));
       }
       const lib = target.protocol === "https:" ? https : http;
       const req = lib.request(
@@ -131,7 +141,7 @@ class ControlApiClient {
             res.resume();
             return reject(
               new ApiError(
-                `Control API ${target.pathname} -> ${res.statusCode}`,
+                this.redact(`Control API ${target.pathname} -> ${res.statusCode}`),
                 { statusCode: res.statusCode },
               ),
             );
@@ -143,20 +153,20 @@ class ControlApiClient {
         req.destroy(new ApiError("Control API request timed out")),
       );
       req.on("error", (err) =>
-        reject(err instanceof ApiError ? err : new ApiError(err.message)),
+        reject(err instanceof ApiError ? err : new ApiError(this.redact(err.message))),
       );
       req.end();
     });
   }
 
-  sse({ replay = 200, lastEventId = null } = {}) {
+  sse({ replay = 200, lastEventId = null, signal = undefined } = {}) {
     return new Promise((resolve, reject) => {
       const q = new URLSearchParams({ replay: String(replay) });
       let target;
       try {
         target = this._target(`/events?${q.toString()}`);
       } catch (e) {
-        return reject(new ApiError(`Bad Control API URL: ${e.message}`));
+        return reject(new ApiError(`Bad Control API URL: ${this.redact(e.message)}`));
       }
 
       const headers = this._headers({
@@ -166,7 +176,8 @@ class ControlApiClient {
       if (lastEventId != null) headers["Last-Event-ID"] = String(lastEventId);
 
       const lib = target.protocol === "https:" ? https : http;
-      const req = lib.request(target, { method: "GET", headers }, (res) => {
+      const req = lib.request(target, { method: "GET", headers, timeout: DEFAULT_TIMEOUT_MS, signal }, (res) => {
+        req.setTimeout(0);
         if ((res.statusCode || 0) !== 200) {
           res.resume();
           return reject(
@@ -178,8 +189,11 @@ class ControlApiClient {
         res.setEncoding("utf8");
         resolve({ req, res });
       });
+      req.on("timeout", () =>
+        req.destroy(new ApiError("Control API event stream timed out")),
+      );
       req.on("error", (err) =>
-        reject(err instanceof ApiError ? err : new ApiError(err.message)),
+        reject(err instanceof ApiError ? err : new ApiError(this.redact(err.message))),
       );
       req.end();
     });

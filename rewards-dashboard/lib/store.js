@@ -3,6 +3,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { DatabaseSync } = require("node:sqlite");
+const { serverSql } = require("./serverSql");
 
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, "..", "data");
 const DB_FILE = path.join(DATA_DIR, "dashboard.sqlite");
@@ -184,13 +185,27 @@ CREATE INDEX IF NOT EXISTS idx_activity_ts ON activity(ts);
 
 class Store {
   // dbFile may be ":memory:" (tests).
-  constructor({ dbFile = DB_FILE } = {}) {
-    if (dbFile !== ":memory:") fs.mkdirSync(path.dirname(dbFile), { recursive: true });
-    this.db = new DatabaseSync(dbFile);
-    this.db.exec("PRAGMA journal_mode = WAL;");
-    this.db.exec("PRAGMA synchronous = NORMAL;");
-    this.db.exec(SCHEMA);
-    this._migrate();
+  constructor({ dbFile = DB_FILE, db = null, serverId = null, readOnly = false } = {}) {
+    if (serverId !== null && (typeof serverId !== "string" || !serverId))
+      throw new Error("A valid server ID is required.");
+    if (!db && dbFile !== ":memory:") fs.mkdirSync(path.dirname(dbFile), { recursive: true });
+    this.db = db || new DatabaseSync(dbFile);
+    this._ownsDb = !db;
+    this.serverId = serverId;
+    if (this._ownsDb) {
+      this.db.exec("PRAGMA journal_mode = WAL;");
+      this.db.exec("PRAGMA synchronous = NORMAL;");
+    }
+    if (serverId === null) {
+      this.db.exec(SCHEMA);
+      this._migrate();
+    } else {
+      for (const table of ["meta", "accounts", "account_activities", "account_history", "runs", "activity"]) {
+        const cols = this.db.prepare(`PRAGMA table_info(${table})`).all();
+        if (!cols.some((col) => col.name === "server_id"))
+          throw new Error(`The ${table} table is not server-scoped.`);
+      }
+    }
     this._prepare();
     this._lastTs = this._readMeta("lastTs");
     this._lastTsDirty = false;
@@ -217,7 +232,7 @@ class Store {
     // own, much shorter timeout than RUN_STALE_BACKSTOP_MS). Runs
     // independently of incoming events, since a truly dead run produces no
     // further events to trigger a check.
-    this._zeroStartWatchdog = setInterval(() => {
+    this._zeroStartWatchdog = readOnly ? null : setInterval(() => {
       try {
         this._flushLastTs();
       } catch {
@@ -234,7 +249,7 @@ class Store {
         /* best-effort safety net */
       }
     }, ZERO_START_WATCHDOG_INTERVAL_MS);
-    if (this._zeroStartWatchdog.unref) this._zeroStartWatchdog.unref();
+    if (this._zeroStartWatchdog?.unref) this._zeroStartWatchdog.unref();
   }
 
   _migrate() {
@@ -282,16 +297,17 @@ class Store {
   }
 
   _prepare() {
+    const { filter, serverColumn, serverValue, prepare } = serverSql(this.db, this.serverId);
     this.stmts = {
-      getMeta: this.db.prepare("SELECT value FROM meta WHERE key = ?"),
-      setMeta: this.db.prepare(
-        "INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+      getMeta: prepare(`SELECT value FROM meta WHERE ${filter} AND key = ?`),
+      setMeta: prepare(
+        `INSERT INTO meta (${serverColumn}key, value) VALUES (${serverValue}?, ?) ON CONFLICT(${serverColumn}key) DO UPDATE SET value = excluded.value`,
       ),
 
-      upsertAccountStart: this.db.prepare(`
-                INSERT INTO accounts (email, user_name, geo_locale, status, last_start_at)
-                VALUES (?, ?, ?, 'running', ?)
-                ON CONFLICT(email) DO UPDATE SET
+      upsertAccountStart: prepare(`
+                INSERT INTO accounts (${serverColumn}email, user_name, geo_locale, status, last_start_at)
+                VALUES (${serverValue}?, ?, ?, 'running', ?)
+                ON CONFLICT(${serverColumn}email) DO UPDATE SET
                     user_name = excluded.user_name,
                     geo_locale = excluded.geo_locale,
                     status = 'running',
@@ -300,49 +316,49 @@ class Store {
                     last_earnable = NULL,
                     last_start_at = excluded.last_start_at
             `),
-      clearAccountActivities: this.db.prepare(
-        "DELETE FROM account_activities WHERE email = ?",
+      clearAccountActivities: prepare(
+        `DELETE FROM account_activities WHERE ${filter} AND email = ?`,
       ),
-      clearStaleActivities: this.db.prepare(
-        "DELETE FROM account_activities WHERE email = ? AND ts < ?",
+      clearStaleActivities: prepare(
+        `DELETE FROM account_activities WHERE ${filter} AND email = ? AND ts < ?`,
       ),
-      getActivityResult: this.db.prepare(
-        "SELECT status, points_gained as pointsGained, run_start as runStart FROM account_activities WHERE email = ? AND activity = ? AND title = ?",
+      getActivityResult: prepare(
+        `SELECT status, points_gained as pointsGained, run_start as runStart FROM account_activities WHERE ${filter} AND email = ? AND activity = ? AND title = ?`,
       ),
-      getAccountStart: this.db.prepare(
-        "SELECT last_start_at as startAt FROM accounts WHERE email = ?",
+      getAccountStart: prepare(
+        `SELECT last_start_at as startAt FROM accounts WHERE ${filter} AND email = ?`,
       ),
-      upsertActivityResult: this.db.prepare(`
-                INSERT INTO account_activities (email, activity, title, status, points_gained, reason, ts, run_start)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(email, activity, title) DO UPDATE SET
+      upsertActivityResult: prepare(`
+                INSERT INTO account_activities (${serverColumn}email, activity, title, status, points_gained, reason, ts, run_start)
+                VALUES (${serverValue}?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(${serverColumn}email, activity, title) DO UPDATE SET
                     status = excluded.status,
                     points_gained = excluded.points_gained,
                     reason = excluded.reason,
                     ts = excluded.ts,
                     run_start = excluded.run_start
             `),
-      allActivityResults: this.db.prepare(`
+      allActivityResults: prepare(`
                 SELECT email, activity, title, status, points_gained as pointsGained, reason
-                FROM account_activities ORDER BY ts ASC
+                FROM account_activities WHERE ${filter} ORDER BY ts ASC
             `),
-      setActivityCounts: this.db.prepare(
-        "UPDATE accounts SET last_activity_counts = ? WHERE email = ?",
+      setActivityCounts: prepare(
+        `UPDATE accounts SET last_activity_counts = ? WHERE ${filter} AND email = ?`,
       ),
-      getEarnable: this.db.prepare(
-        "SELECT last_earnable as value FROM accounts WHERE email = ?",
+      getEarnable: prepare(
+        `SELECT last_earnable as value FROM accounts WHERE ${filter} AND email = ?`,
       ),
-      setEarnable: this.db.prepare(
-        "UPDATE accounts SET last_earnable = ? WHERE email = ?",
+      setEarnable: prepare(
+        `UPDATE accounts SET last_earnable = ? WHERE ${filter} AND email = ?`,
       ),
       // last_points keeps its previous value when the new one is NULL: a
       // failed/cancelled account reports a placeholder balance (the cluster
       // master logs 0/0 for a worker that died), and a placeholder must not
       // overwrite the last balance we actually saw.
-      upsertAccountEnd: this.db.prepare(`
-                INSERT INTO accounts (email, user_name, status, last_end_at, last_gained, last_points, last_duration_sec, last_error, last_outcome)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(email) DO UPDATE SET
+      upsertAccountEnd: prepare(`
+                INSERT INTO accounts (${serverColumn}email, user_name, status, last_end_at, last_gained, last_points, last_duration_sec, last_error, last_outcome)
+                VALUES (${serverValue}?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(${serverColumn}email) DO UPDATE SET
                     status = excluded.status,
                     last_end_at = excluded.last_end_at,
                     last_gained = excluded.last_gained,
@@ -351,43 +367,43 @@ class Store {
                     last_error = excluded.last_error,
                     last_outcome = excluded.last_outcome
             `),
-      upsertAccountError: this.db.prepare(`
-                INSERT INTO accounts (email, status, last_end_at, last_error, last_outcome)
-                VALUES (?, 'error', ?, ?, 'failed')
-                ON CONFLICT(email) DO UPDATE SET
+      upsertAccountError: prepare(`
+                INSERT INTO accounts (${serverColumn}email, status, last_end_at, last_error, last_outcome)
+                VALUES (${serverValue}?, 'error', ?, ?, 'failed')
+                ON CONFLICT(${serverColumn}email) DO UPDATE SET
                     status = 'error',
                     last_end_at = excluded.last_end_at,
                     last_error = excluded.last_error,
                     last_outcome = 'failed'
             `),
-      upsertStreakProtection: this.db.prepare(`
+      upsertStreakProtection: prepare(`
                 INSERT INTO accounts (
-                    email, user_name, status, streak_protection_enabled,
+                    ${serverColumn}email, user_name, status, streak_protection_enabled,
                     streak_protection_remaining_days, streak_counter,
                     streak_protection_updated_at
                 )
-                VALUES (?, ?, 'idle', ?, ?, ?, ?)
-                ON CONFLICT(email) DO UPDATE SET
+                VALUES (${serverValue}?, ?, 'idle', ?, ?, ?, ?)
+                ON CONFLICT(${serverColumn}email) DO UPDATE SET
                     user_name = excluded.user_name,
                     streak_protection_enabled = excluded.streak_protection_enabled,
                     streak_protection_remaining_days = excluded.streak_protection_remaining_days,
                     streak_counter = excluded.streak_counter,
                     streak_protection_updated_at = excluded.streak_protection_updated_at
             `),
-      insertHistory: this.db.prepare(
-        "INSERT INTO account_history (email, ts, points, gained, duration_sec) VALUES (?, ?, ?, ?, ?)",
+      insertHistory: prepare(
+        `INSERT INTO account_history (${serverColumn}email, ts, points, gained, duration_sec) VALUES (${serverValue}?, ?, ?, ?, ?)`,
       ),
-      historyForEmail: this.db.prepare(
-        "SELECT ts, points, gained, duration_sec as durationSec FROM account_history WHERE email = ? ORDER BY ts ASC",
+      historyForEmail: prepare(
+        `SELECT ts, points, gained, duration_sec as durationSec FROM account_history WHERE ${filter} AND email = ? ORDER BY ts ASC`,
       ),
-      deleteAccountRow: this.db.prepare("DELETE FROM accounts WHERE email = ?"),
-      deleteAccountHistory: this.db.prepare(
-        "DELETE FROM account_history WHERE email = ?",
+      deleteAccountRow: prepare(`DELETE FROM accounts WHERE ${filter} AND email = ?`),
+      deleteAccountHistory: prepare(
+        `DELETE FROM account_history WHERE ${filter} AND email = ?`,
       ),
-      deleteAccountActivity: this.db.prepare(
-        "DELETE FROM activity WHERE email = ?",
+      deleteAccountActivity: prepare(
+        `DELETE FROM activity WHERE ${filter} AND email = ?`,
       ),
-      allAccounts: this.db.prepare(`
+      allAccounts: prepare(`
                 SELECT email, user_name as userName, geo_locale as geoLocale, status,
                        last_start_at as lastStartAt, last_end_at as lastEndAt,
                        last_gained as lastGained, last_points as lastPoints,
@@ -399,124 +415,125 @@ class Store {
                        streak_protection_updated_at as streakProtectionUpdatedAt,
                        last_activity_counts as lastActivityCounts,
                        last_earnable as lastEarnable
-                FROM accounts
+                FROM accounts WHERE ${filter}
                 ORDER BY COALESCE(last_end_at, last_start_at) DESC
             `),
 
-      insertRunStart: this.db.prepare(`
-                INSERT INTO runs (id, status, start_ts, version, total_accounts, clusters)
-                VALUES (?, 'running', ?, ?, ?, ?)
-                ON CONFLICT(id) DO NOTHING
+      insertRunStart: prepare(`
+                INSERT INTO runs (${serverColumn}id, status, start_ts, version, total_accounts, clusters)
+                VALUES (${serverValue}?, 'running', ?, ?, ?, ?)
+                ON CONFLICT(${serverColumn}id) DO NOTHING
             `),
-      findRunningRun: this.db.prepare(
-        `SELECT id, start_ts as startTs, total_accounts as totalAccounts FROM runs WHERE status = 'running' ORDER BY start_ts DESC LIMIT 1`,
+      findRunningRun: prepare(
+        `SELECT id, start_ts as startTs, total_accounts as totalAccounts FROM runs WHERE ${filter} AND status = 'running' ORDER BY start_ts DESC LIMIT 1`,
       ),
-      accountsStartedSince: this.db.prepare(`
+      accountsStartedSince: prepare(`
                 SELECT COUNT(DISTINCT email) as n
                 FROM activity
-                WHERE kind = 'account-start' AND email IS NOT NULL AND ts >= ?
+                WHERE ${filter} AND kind = 'account-start' AND email IS NOT NULL AND ts >= ?
             `),
-      accountsResolvedSince: this.db.prepare(`
+      accountsResolvedSince: prepare(`
                 SELECT COUNT(DISTINCT email) as n, MAX(ts) as lastTs
                 FROM activity
-                WHERE kind IN ('account-end', 'account-error') AND email IS NOT NULL AND ts >= ?
+                WHERE ${filter} AND kind IN ('account-end', 'account-error') AND email IS NOT NULL AND ts >= ?
             `),
-      lastLoginPromptKindSince: this.db.prepare(`
+      lastLoginPromptKindSince: prepare(`
                 SELECT kind FROM activity
-                WHERE ts >= ? AND kind IN ('login-number', 'login-number-resolved')
+                WHERE ${filter} AND ts >= ? AND kind IN ('login-number', 'login-number-resolved')
                 ORDER BY ts DESC LIMIT 1
             `),
-      sumHistorySince: this.db.prepare(`
+      sumHistorySince: prepare(`
                 SELECT COALESCE(SUM(gained), 0) as gained, COALESCE(SUM(points), 0) as points
-                FROM account_history WHERE ts >= ?
+                FROM account_history WHERE ${filter} AND ts >= ?
             `),
 
-      insertOrphanRunEnd: this.db.prepare(`
-                INSERT INTO runs (id, status, end_ts, accounts_processed, total_gained, old_total, new_total, runtime_min, outcome)
-                VALUES (?, 'done', ?, ?, ?, ?, ?, ?, ?)
+      insertOrphanRunEnd: prepare(`
+                INSERT INTO runs (${serverColumn}id, status, end_ts, accounts_processed, total_gained, old_total, new_total, runtime_min, outcome)
+                VALUES (${serverValue}?, 'done', ?, ?, ?, ?, ?, ?, ?)
             `),
-      recentRuns: this.db.prepare(`
+      recentRuns: prepare(`
                 SELECT id, status, start_ts as startTs, end_ts as endTs, version,
                        total_accounts as totalAccounts, clusters,
                        accounts_processed as accountsProcessed, total_gained as totalGained,
                        old_total as oldTotal, new_total as newTotal, runtime_min as runtimeMin,
                        exit_code as exitCode, exit_signal as exitSignal, outcome
-                FROM runs ORDER BY COALESCE(start_ts, end_ts) DESC LIMIT ?
+                FROM runs WHERE ${filter} ORDER BY COALESCE(start_ts, end_ts) DESC LIMIT ? OFFSET ?
             `),
       // The single terminal-state writer for a 'running' row. RUN-END passes
       // the bot's own totals; every other path (crash/stop/interrupt/
       // auto-close) derives them from account_history, see _closeRunningRun().
       // exit_code/exit_signal are NULL when the exit wasn't observed - never
       // a guessed 0.
-      closeRunFull: this.db.prepare(`
+      closeRunFull: prepare(`
                 UPDATE runs SET status = ?, end_ts = ?, accounts_processed = ?,
                     total_gained = ?, old_total = ?, new_total = ?, runtime_min = ?,
                     exit_code = ?, exit_signal = ?, outcome = ?
-                WHERE id = ?
+                WHERE ${filter} AND id = ?
             `),
-      markRunStopped: this.db.prepare(`
+      markRunStopped: prepare(`
                 UPDATE runs SET status = 'stopped', exit_code = ?, exit_signal = ?,
                     outcome = COALESCE(?, outcome)
-                WHERE id = ?
+                WHERE ${filter} AND id = ?
             `),
-        markRunInterrupted: this.db.prepare(`
+        markRunInterrupted: prepare(`
             UPDATE runs SET status = 'interrupted', exit_code = ?,
               exit_signal = ?, outcome = 'interrupted'
-            WHERE id = ?
+            WHERE ${filter} AND id = ?
           `),
       // Fills in what the process exit/controller reported for a run RUN-END
       // already closed. A NULL never erases a value we already have.
-      setRunExit: this.db.prepare(`
+      setRunExit: prepare(`
                 UPDATE runs SET outcome = COALESCE(?, outcome),
                     exit_code = COALESCE(?, exit_code),
                     exit_signal = COALESCE(?, exit_signal)
-                WHERE id = ?
+                WHERE ${filter} AND id = ?
             `),
-      updateStoppedRunEnd: this.db.prepare(`
+      updateStoppedRunEnd: prepare(`
                 UPDATE runs SET end_ts = ?, accounts_processed = ?, total_gained = ?,
                     old_total = ?, new_total = ?, runtime_min = ?
-                WHERE id = ? AND status = 'stopped'
+                WHERE ${filter} AND id = ? AND status = 'stopped'
             `),
-      orphanedRunningAccounts: this.db.prepare(
-        "SELECT email FROM accounts WHERE status = 'running' AND last_start_at >= ?",
+      orphanedRunningAccounts: prepare(
+        `SELECT email FROM accounts WHERE ${filter} AND status = 'running' AND last_start_at >= ?`,
       ),
-      markAccountInterrupted: this.db.prepare(`
+      markAccountInterrupted: prepare(`
             UPDATE accounts SET status = ?, last_end_at = ?, last_error = ?, last_outcome = ?
-                WHERE email = ? AND status = 'running'
+                WHERE ${filter} AND email = ? AND status = 'running'
             `),
       // RUN-END is authoritative proof that the overall run completed.
       // An account still marked 'running' at this point did not emit its own
       // ACCOUNT-END/ACCOUNT-ERROR, but it must not remain 'running' forever.
       // Keep the diagnostic in last_error so the missing worker result is
       // visible without incorrectly classifying the completed run as an error.
-      markAccountCompletedWithoutResult: this.db.prepare(`
+      markAccountCompletedWithoutResult: prepare(`
                 UPDATE accounts SET status = 'success', last_end_at = ?, last_error = ?, last_outcome = NULL
-                WHERE email = ? AND status = 'running'
+                WHERE ${filter} AND email = ? AND status = 'running'
             `),
-      allHistories: this.db.prepare(`
+      allHistories: prepare(`
                 SELECT email, ts, points, gained, duration_sec as durationSec
                 FROM account_history
+                WHERE ${filter}
                 ORDER BY email ASC, ts ASC
             `),
-      allHistoriesSince: this.db.prepare(`
+      allHistoriesSince: prepare(`
                 SELECT email, ts, points, gained, duration_sec as durationSec
                 FROM account_history
-                WHERE ts >= ?
+                WHERE ${filter} AND ts >= ?
                 ORDER BY email ASC, ts ASC
             `),
 
-      insertActivity: this.db.prepare(`
-                INSERT INTO activity (ts, level, title, kind, user_name, platform, email, message, raw)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      insertActivity: prepare(`
+                INSERT INTO activity (${serverColumn}ts, level, title, kind, user_name, platform, email, message, raw)
+                VALUES (${serverValue}?, ?, ?, ?, ?, ?, ?, ?, ?)
             `),
-      recentActivity: this.db.prepare(`
-                SELECT ts, level, title, kind, user_name as userName, platform, email, message, raw
-                FROM activity ORDER BY id DESC LIMIT ?
+      recentActivity: prepare(`
+                SELECT id, ts, level, title, kind, user_name as userName, platform, email, message, raw
+                FROM activity WHERE ${filter} ORDER BY id DESC LIMIT ?
             `),
-      countActivity: this.db.prepare("SELECT COUNT(*) as n FROM activity"),
-      pruneActivity: this.db.prepare(`
-                DELETE FROM activity WHERE id IN (
-                    SELECT id FROM activity ORDER BY id ASC LIMIT ?
+      countActivity: prepare(`SELECT COUNT(*) as n FROM activity WHERE ${filter}`),
+      pruneActivity: prepare(`
+                DELETE FROM activity WHERE ${filter} AND id IN (
+                    SELECT id FROM activity WHERE ${filter} ORDER BY id ASC LIMIT ?
                 )
             `),
     };
@@ -1476,8 +1493,8 @@ class Store {
     return byEmail;
   }
 
-  snapshotRuns(limit = 30) {
-    return this.stmts.recentRuns.all(limit);
+  snapshotRuns(limit = 30, offset = 0) {
+    return this.stmts.recentRuns.all(limit, offset);
   }
 
   allAccountHistories({ since = null } = {}) {
@@ -1527,12 +1544,14 @@ class Store {
     this.db.exec("PRAGMA wal_checkpoint(TRUNCATE);");
   }
 
-  close() {
+  close({ keepDatabase = false } = {}) {
     if (this._settleTimer) clearTimeout(this._settleTimer);
     if (this._zeroStartWatchdog) clearInterval(this._zeroStartWatchdog);
     this._flushLastTs();
-    this.saveNow();
-    this.db.close();
+    if (this._ownsDb && !keepDatabase) {
+      this.saveNow();
+      this.db.close();
+    }
   }
 }
 

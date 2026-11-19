@@ -1,20 +1,25 @@
 import * as U from "../util.js";
-import { cached } from "../api.js";
+import { loadServers } from "../serverViews.js";
 import { barChart } from "../charts.js";
 
 let rootEl = null;
 let runsPayload = null;
-let accountsPayload = null;
 let days = 30;
 let openExit = null;
+let groups = [];
+let serverFilter = "all";
+let showAllRuns = false;
+let loadingMore = false;
+let refreshSequence = 0;
 
 function dailyBars() {
-  const histories = accountsPayload?.histories || {};
   const totals = new Map();
 
-  for (const history of Object.values(histories)) {
-    for (const day of U.bucketByDay(history)) {
-      totals.set(day.dayKey, (totals.get(day.dayKey) || 0) + day.gained);
+  for (const group of groups.filter((item) => serverFilter === "all" || item.server.id === serverFilter)) {
+    for (const history of Object.values(group.accounts?.histories || {})) {
+      for (const day of U.bucketByDay(history)) {
+        totals.set(day.dayKey, (totals.get(day.dayKey) || 0) + day.gained);
+      }
     }
   }
 
@@ -57,12 +62,12 @@ function isInformative(r) {
 }
 
 function renderRuns() {
-  const runs = (runsPayload?.runs || []).filter(isInformative);
+  const runs = (runsPayload?.runs || []).filter((run) => (serverFilter === "all" || run.serverId === serverFilter) && (showAllRuns || isInformative(run)));
   const body = U.$("#runsBody", rootEl);
 
   if (!runs.length) {
     body.innerHTML =
-      '<tr><td colspan="7" class="empty-note">No runs recorded yet.</td></tr>';
+      '<tr><td colspan="8" class="empty-note">No runs recorded yet.</td></tr>';
     return;
   }
 
@@ -77,6 +82,7 @@ function renderRuns() {
             )
             : "\u2013";
       return `<tr>
+                <td>${U.escapeHtml(r.serverName)}</td>
                 <td>${U.statusPill(r.status, r.outcome ? `Script reported: ${r.outcome}` : "")}</td>
                 <td>${U.escapeHtml(U.fmtDateTime(r.startTs || r.endTs))}</td>
                 <td>${U.escapeHtml(duration)}</td>
@@ -102,7 +108,7 @@ function exitPill(run) {
 }
 
 function renderExits() {
-  const exits = runsPayload?.exits || [];
+  const exits = (runsPayload?.exits || []).filter((run) => serverFilter === "all" || run.serverId === serverFilter);
   const list = U.$("#exitList", rootEl);
 
   U.$("#exitsError", rootEl).hidden = !runsPayload?.apiError;
@@ -144,6 +150,7 @@ function renderExits() {
       return `<li class="exit-item">
                 <button type="button" class="exit-head" data-exit="${i}" aria-expanded="${isOpen}">
                     ${exitPill(run)}
+                    <span>${U.escapeHtml(run.serverName)}</span>
                     <span class="exit-when">${U.escapeHtml(U.fmtDateTime(run.endedAt || run.startedAt))}</span>
                     <span class="exit-meta">${U.fmtSigned(run.collected || 0)} pts \u00b7 ${ok} ok${stopped ? ` \u00b7 ${stopped} stopped` : ""}${failed ? ` \u00b7 ${failed} failed` : ""}</span>
                     <span class="exit-chevron" aria-hidden="true">${isOpen ? "\u25BE" : "\u25B8"}</span>
@@ -167,9 +174,10 @@ export default {
   label: "Runs",
   interval: 20000,
 
-  mount(root) {
+  mount(root, ctx) {
     rootEl = root;
     root.innerHTML = `
+            <label class="field field--inline"><span>Server</span><select id="runsServer" class="input"><option value="all">All servers</option></select></label>
             <section class="panel" aria-labelledby="runs-chart-heading">
                 <div class="panel-head">
                     <h2 id="runs-chart-heading">Points per day</h2>
@@ -187,12 +195,14 @@ export default {
                 <div class="panel-head">
                     <h2 id="runs-table-heading">Run history</h2>
                     <span class="panel-sub">Parsed from the bot&rsquo;s own log output</span>
+                    <label class="check"><input type="checkbox" id="runsShowAll"><span>Show all recorded runs</span></label>
+                    <button type="button" class="btn" id="runsLoadMore">Load older runs</button>
                 </div>
                 <div class="table-wrap">
                     <table>
                         <thead>
                             <tr>
-                                <th>Status</th><th>Started</th><th>Duration</th>
+                                <th>Server</th><th>Status</th><th>Started</th><th>Duration</th>
                                 <th>Accounts</th><th>Gained</th><th>New total</th><th>Version</th>
                             </tr>
                         </thead>
@@ -210,6 +220,40 @@ export default {
                 <ul class="exit-list" id="exitList"></ul>
             </section>`;
 
+    U.$("#runsServer", root).addEventListener("change", (event) => {
+      serverFilter = event.target.value;
+      openExit = null;
+      this.redraw();
+    });
+    U.$("#runsShowAll", root).addEventListener("change", (event) => {
+      showAllRuns = event.target.checked;
+      renderRuns();
+    });
+    U.$("#runsLoadMore", root).addEventListener("click", async () => {
+      if (loadingMore) return;
+      loadingMore = true;
+      const button = U.$("#runsLoadMore", root);
+      button.disabled = true;
+      const targets = groups.filter((group) => group.runs && (serverFilter === "all" || group.server.id === serverFilter));
+      const results = await Promise.allSettled(targets.map((group) =>
+        ctx.api.forServer(group.server.id, group.archived).runs(100, group.runs.runs.length)));
+      const errors = [];
+      results.forEach((result, index) => {
+        const group = groups.find((item) => item.server.id === targets[index].server.id);
+        if (!group?.runs) return;
+        if (result.status === "rejected") {
+          errors.push(`${group.server.name}: ${result.reason.message}`);
+          return;
+        }
+        const existing = new Set(group.runs.runs.map((run) => run.id));
+        group.runs.runs.push(...result.value.runs.filter((run) => !existing.has(run.id)));
+      });
+      if (errors.length) U.toast(errors.join(" · "), "error");
+      this.updatePayload();
+      this.redraw();
+      loadingMore = false;
+      button.disabled = false;
+    });
     root.querySelectorAll("button[data-days]").forEach((btn) =>
       btn.addEventListener("click", () => {
         days = Number(btn.dataset.days);
@@ -222,11 +266,36 @@ export default {
   },
 
   async refresh(ctx) {
-    [runsPayload, accountsPayload] = await Promise.all([
-      cached("runs", () => ctx.api.runs(100), 5000),
-      cached("accounts", ctx.api.accounts, 5000),
-    ]);
+    const previous = groups;
+    const sequence = ++refreshSequence;
+    const nextGroups = await loadServers(ctx.api, ["runs", "accounts"], { historical: true });
+    if (sequence !== refreshSequence) return;
+    groups = nextGroups;
+    for (const group of groups) {
+      const older = previous.find((item) => item.server.id === group.server.id)?.runs?.runs || [];
+      if (!group.runs) continue;
+      const current = new Set(group.runs.runs.map((run) => run.id));
+      group.runs.runs.push(...older.filter((run) => !current.has(run.id)));
+    }
+    const select = U.$("#runsServer", rootEl);
+    if (serverFilter !== "all" && !groups.some((group) => group.server.id === serverFilter)) serverFilter = "all";
+    select.innerHTML = '<option value="all">All servers</option>' + groups.map(({ server }) =>
+      `<option value="${U.escapeAttr(server.id)}">${U.escapeHtml(server.name)}${server.deletedAt ? " (removed)" : !server.enabled ? " (disabled)" : ""}</option>`).join("");
+    select.value = serverFilter;
+    this.updatePayload();
     this.redraw();
+  },
+
+  updatePayload() {
+    const collect = (field) => groups.flatMap((group) => (group.runs?.[field] || []).map((run) => ({
+      ...run, serverId: group.server.id, serverName: `${group.server.name}${group.server.deletedAt ? " (removed)" : ""}`,
+    }))).sort((a, b) =>
+      (Date.parse(b.startTs || b.startedAt || b.endTs || b.endedAt) || 0) -
+      (Date.parse(a.startTs || a.startedAt || a.endTs || a.endedAt) || 0));
+    runsPayload = {
+      runs: collect("runs"), exits: collect("exits"),
+      apiError: groups.flatMap((group) => [...group.errors, group.runs?.apiError, group.accounts?.apiError].filter(Boolean).map((error) => `${group.server.name}: ${error}`)).join(" · "),
+    };
   },
 
   redraw() {

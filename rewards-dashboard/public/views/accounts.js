@@ -1,5 +1,6 @@
 import * as U from "../util.js";
-import { cached } from "../api.js";
+import { combineAccounts, loadServers } from "../serverViews.js";
+import { lineChart } from "../charts.js";
 import {
   renderActivity,
   summaryChips,
@@ -18,11 +19,13 @@ let context = null;
 const launching = new Set();
 const selectedForBatch = new Set();
 const expandedAccounts = new Set();
+const expandedTrends = new Set();
 const expandedFeatures = new Set();
 const expandedActivity = new Set(); // "email|day|group" rows opened in the points table
 const selectedActivityDay = new Map(); // lower-cased email -> chosen Rewards day
-let activityPayload = null; // GET /api/activity-days
-let activityError = null; // last failure fetching it, if any
+let groups = [];
+let includeHistory = false;
+let refreshSequence = 0;
 let batchRunning = false;
 
 // Two-step delete: a key must be "armed" by a first click before a second
@@ -31,8 +34,13 @@ let batchRunning = false;
 const deleteArmed = new Set();
 const deleting = new Set();
 
-function controlState() {
-  const status = context?.status;
+function statusFor(serverId) {
+  const group = groups.find((item) => item.server.id === serverId);
+  return group?.archived ? group.summary?.status : context?.statusFor(serverId) || group?.summary?.status;
+}
+
+function controlState(serverId) {
+  const status = statusFor(serverId);
   const usable = Boolean(status?.reachable && status?.authOk !== false);
   const running = Boolean(status?.botRunning);
   return { usable, running };
@@ -47,10 +55,10 @@ function selectableAccounts() {
 async function runAccount(account) {
   if (!context || !account.configured || !Number.isInteger(account.index)) return;
 
-  launching.add(account.index);
+  launching.add(account.key);
   render(rootEl);
   try {
-    await context.api.control("start", { accountIndex: account.index });
+    await context.api.forServer(account.serverId).control("start", { accountIndex: account.index });
     context.toast(
       `Started ACCOUNT_${account.index} only (${account.email}).`,
       "success",
@@ -60,7 +68,7 @@ async function runAccount(account) {
   } catch (error) {
     context.toast(error.message, error.status === 409 ? "warn" : "error");
   } finally {
-    launching.delete(account.index);
+    launching.delete(account.key);
     render(rootEl);
   }
 }
@@ -73,7 +81,7 @@ async function deleteAccount(account) {
   deleting.add(account.key);
   render(rootEl);
   try {
-    await context.api.deleteDashboardAccount(account.email);
+    await context.api.forServer(account.serverId).deleteDashboardAccount(account.email);
     context.toast(`Removed ${account.email} from the dashboard.`, "success");
     context.invalidate();
     await context.refresh();
@@ -88,26 +96,21 @@ async function deleteAccount(account) {
 async function runSelectedAccounts() {
   if (!context) return;
   const configured = selectableAccounts();
-  const selectedIndexes = configured
-    .filter((a) => selectedForBatch.has(a.index))
-    .map((a) => a.index);
-  if (!selectedIndexes.length) return;
-
-  // The control API only accepts an exclusion list, so a "run these x of y"
-  // request is expressed as "exclude everyone else".
-  const excludedAccountIndexes = configured
-    .filter((a) => !selectedForBatch.has(a.index))
-    .map((a) => a.index);
-  const startBody = excludedAccountIndexes.length ? { excludedAccountIndexes } : {};
+  const targets = groups.filter((group) => configured.some((a) =>
+    a.serverId === group.server.id && selectedForBatch.has(a.key)));
+  if (!targets.length) return;
+  if (targets.length > 1 && !window.confirm(`Start selected accounts on these servers?\n\n${targets.map((g) => g.server.name).join("\n")}`)) return;
 
   batchRunning = true;
   render(rootEl);
   try {
-    await context.api.control("start", startBody);
-    context.toast(
-      `Started ${selectedIndexes.length}/${configured.length} selected accounts.`,
-      "success",
-    );
+    const results = await Promise.allSettled(targets.map((group) => {
+      const serverAccounts = configured.filter((a) => a.serverId === group.server.id);
+      const excludedAccountIndexes = serverAccounts.filter((a) => !selectedForBatch.has(a.key)).map((a) => a.index);
+      return context.api.forServer(group.server.id).control("start", excludedAccountIndexes.length ? { excludedAccountIndexes } : {});
+    }));
+    const failures = results.flatMap((result, index) => result.status === "rejected" ? [`${targets[index].server.name}: ${result.reason.message}`] : []);
+    context.toast(failures.length ? `Some runs failed: ${failures.join(" · ")}` : `Started selected accounts on ${targets.length} server(s).`, failures.length ? "error" : "success");
     context.invalidate();
     await context.refresh();
   } catch (error) {
@@ -120,13 +123,12 @@ async function runSelectedAccounts() {
 
 function renderBatchToolbar(root) {
   const configured = selectableAccounts();
-  const configuredIndexes = new Set(configured.map((a) => a.index));
+  const configuredIndexes = new Set(configured.map((a) => a.key));
   // Drop selections for accounts that disappeared (e.g. .env edited).
   for (const index of [...selectedForBatch]) {
     if (!configuredIndexes.has(index)) selectedForBatch.delete(index);
   }
 
-  const { usable, running } = controlState();
   const count = selectedForBatch.size;
   const total = configured.length;
 
@@ -138,7 +140,10 @@ function renderBatchToolbar(root) {
   allBtn.disabled = total === 0;
 
   const runBtn = U.$("#accountsRunSelected", root);
-  runBtn.disabled = !usable || running || batchRunning || count === 0;
+  runBtn.disabled = batchRunning || count === 0 || configured.some((account) => {
+    const { usable, running } = controlState(account.serverId);
+    return selectedForBatch.has(account.key) && (!usable || running);
+  });
   U.$(".accounts-run-selected-label", runBtn).textContent = batchRunning ? "Starting\u2026" : "Run selected";
 }
 
@@ -224,11 +229,12 @@ function detailGroups(a, protection) {
 
 function renderAccountPanel(a, live) {
   const protection = protectionPresentation(a);
-  const { usable, running } = controlState();
+  const status = statusFor(a.serverId);
+  const { usable, running } = controlState(a.serverId);
   const displayStatus = U.accountDisplayStatus(
     a,
     live,
-    Boolean(context?.status?.botRunning),
+    Boolean(status?.botRunning),
   );
 
   // Accounts now start one at a time (accountDelay), so mid-run there can be
@@ -240,10 +246,10 @@ function renderAccountPanel(a, live) {
   // Mirrors overview.js: while waiting between accounts, the one named by
   // pendingDelay.nextEmail is up next, so it reads as "pending" rather than
   // whatever its last-observed status happened to be.
-  const nextAccountEmail = context?.status?.pendingDelay?.nextEmail || null;
-  const statusKey = launching.has(a.index)
+  const nextAccountEmail = status?.pendingDelay?.nextEmail || null;
+  const statusKey = launching.has(a.key)
     ? "starting"
-    : U.sleepRemainingSec(context?.status) != null && a.configured
+    : U.sleepRemainingSec(status) != null && a.configured
       ? "sleeping"
       : displayStatus !== "running" && nextAccountEmail && a.email === nextAccountEmail
       ? "pending"
@@ -251,14 +257,14 @@ function renderAccountPanel(a, live) {
 
   const runButton =
     a.configured && Number.isInteger(a.index)
-      ? `<button type="button" class="btn btn-primary btn-small acc-run-button" data-run-account="${a.index}" aria-label="Run only ACCOUNT_${a.index}" ${!usable || running || launching.has(a.index) ? "disabled" : ""
-      } title="Run only ACCOUNT_${a.index}"><i class="ph ph-play acc-run-icon" aria-hidden="true"></i><span class="acc-run-label">${launching.has(a.index) ? "Starting\u2026" : "Run only"}</span></button>`
+      ? `<button type="button" class="btn btn-primary btn-small acc-run-button" data-run-account="${U.escapeAttr(a.key)}" aria-label="Run only ACCOUNT_${a.index}" ${!usable || running || launching.has(a.key) ? "disabled" : ""
+      } title="Run only ACCOUNT_${a.index}"><i class="ph ph-play acc-run-icon" aria-hidden="true"></i><span class="acc-run-label">${launching.has(a.key) ? "Starting\u2026" : "Run only"}</span></button>`
       : "";
 
   const selectCheckbox =
     a.configured && Number.isInteger(a.index)
       ? `<label class="check acc-batch-select" title="Include ACCOUNT_${a.index} in a batch run">
-          <input type="checkbox" data-select-account="${a.index}" aria-label="Select ACCOUNT_${a.index} for a batch run" ${selectedForBatch.has(a.index) ? "checked" : ""}>
+          <input type="checkbox" data-select-account="${U.escapeAttr(a.key)}" aria-label="Select ACCOUNT_${a.index} for a batch run" ${selectedForBatch.has(a.key) ? "checked" : ""}>
           <span>Select</span>
         </label>`
       : "";
@@ -267,8 +273,8 @@ function renderAccountPanel(a, live) {
   const detailsId = `acc-details-${U.escapeAttr(a.key)}`;
 
   const isDeleting = deleting.has(a.key);
-  const deleteBlocked = displayStatus === "running" || launching.has(a.index);
-  const deleteButton = deleteArmed.has(a.key)
+  const deleteBlocked = displayStatus === "running" || launching.has(a.key);
+  const deleteButton = a.archived ? "" : deleteArmed.has(a.key)
     ? `<span class="acc-delete-confirm">
         <button type="button" class="btn btn-icon btn-small" data-cancel-delete="${U.escapeAttr(a.key)}" aria-label="Cancel delete" ${isDeleting ? "disabled" : ""} title="Cancel delete"><i class="ph ph-x" aria-hidden="true"></i></button>
         <button type="button" class="btn btn-danger btn-icon btn-small" data-confirm-delete="${U.escapeAttr(a.key)}" aria-label="Confirm delete account" ${isDeleting ? "disabled" : ""} title="Permanently remove this account and its history from the dashboard">
@@ -280,7 +286,7 @@ function renderAccountPanel(a, live) {
   const protectionChip = protection
     ? `<span class="account-rail-icon ${protection.pillClass}" role="img" aria-label="Streak protection ${protection.state.toLowerCase()}" title="Streak protection is ${protection.state.toLowerCase()}; ${U.escapeAttr(protection.days)}"><i class="ph ${a.streakProtectionEnabled ? "ph-shield-check" : "ph-shield"}" aria-hidden="true"></i></span>`
     : "";
-  const status = U.pillParts(statusKey);
+  const statusPill = U.pillParts(statusKey);
   const statusIcons = {
     full: "ph-check-circle",
     success: "ph-check-circle",
@@ -301,7 +307,7 @@ function renderAccountPanel(a, live) {
   };
   const statusRail = `
     <aside class="account-status-rail" aria-label="Account status">
-      <span class="account-rail-icon ${status.cls}" role="img" aria-label="${U.escapeAttr(status.label)}" title="${U.escapeAttr(status.label)}"><i class="ph ${statusIcons[statusKey] || statusIcons.idle}" aria-hidden="true"></i></span>
+      <span class="account-rail-icon ${statusPill.cls}" role="img" aria-label="${U.escapeAttr(statusPill.label)}" title="${U.escapeAttr(statusPill.label)}"><i class="ph ${statusIcons[statusKey] || statusIcons.idle}" aria-hidden="true"></i></span>
     </aside>`;
   const featuresOpen = expandedFeatures.has(a.key);
   // Per-activity accounting from the stored run history. An account with no
@@ -309,16 +315,19 @@ function renderAccountPanel(a, live) {
   // its first full v5 run; an account the script skipped (for example for a
   // high bot score) shows that instead of an empty table.
   const emailKey = a.email.trim().toLowerCase();
+  const group = groups.find((item) => item.server.id === a.serverId);
+  const activityPayload = group?.activityDays;
+  const activityError = group?.errors.find((error) => error.startsWith("activityDays:"));
   const actDays = activityPayload?.accounts?.[emailKey] || null;
   let activityBody;
   let activitySummary = "";
   if (actDays?.length) {
     activityBody = renderActivity(actDays, {
-      email: emailKey,
-      selectedDay: selectedActivityDay.get(emailKey),
+      email: a.key,
+      selectedDay: selectedActivityDay.get(a.key),
       expanded: expandedActivity,
     });
-    activitySummary = summaryChips(pickDay(actDays, selectedActivityDay.get(emailKey)));
+    activitySummary = summaryChips(pickDay(actDays, selectedActivityDay.get(a.key)));
   } else if (activityPayload?.synced) {
     activityBody = renderMigration(activityPayload.scriptMajor);
     activitySummary = migrationChip(activityPayload.scriptMajor);
@@ -346,11 +355,12 @@ function renderAccountPanel(a, live) {
             ${a.configured ? "" : '<span class="tag-mini">unconfigured</span>'}
           </div>
         </div>
-        <span class="acc-detail-actions">${selectCheckbox}${runButton}</span>
+        <span class="acc-detail-actions">${selectCheckbox}${runButton}<button type="button" class="btn btn-small" data-account-trend="${U.escapeAttr(a.key)}" aria-expanded="${expandedTrends.has(a.key)}">Trend</button></span>
       </div>
       <div class="panel-body account-detail-body" id="${detailsId}" ${isExpanded ? "" : "hidden"}>
         ${detailGroups(a, protection)}
       </div>
+      ${expandedTrends.has(a.key) ? `<div class="chart-wrap account-history-chart" data-history-chart="${U.escapeAttr(a.key)}" aria-label="Point history"></div>` : ""}
       <div class="account-secondary-row">
         <aside class="account-protection-rail" aria-label="Streak protection">${protectionChip}</aside>
         ${featureDetails}
@@ -363,7 +373,6 @@ function render(root) {
   const container = U.$("#accountsContainer", root);
   const accounts = accountsPayload?.accounts || [];
 
-  const liveByEmail = U.runAccountMap(context?.status);
   const errEl = U.$("#accountsError", root);
   if (errEl) {
     errEl.hidden = !accountsPayload?.apiError;
@@ -376,24 +385,25 @@ function render(root) {
     return;
   }
 
-  container.innerHTML = accounts.map(a => {
-    const live = liveByEmail.get(a.email.trim().toLowerCase()) || null;
-    return renderAccountPanel(a, live);
+  container.innerHTML = accounts.map((a, index) => {
+    const live = U.runAccountMap(statusFor(a.serverId)).get(a.email.trim().toLowerCase()) || null;
+    const header = index === 0 || accounts[index - 1].serverId !== a.serverId
+      ? `<h2 class="account-server-heading">${U.escapeHtml(a.serverName)}</h2>` : "";
+    return header + renderAccountPanel(a, live);
   }).join("");
 
   container.querySelectorAll("button[data-run-account]").forEach((btn) =>
     btn.addEventListener("click", () => {
-      const index = Number(btn.dataset.runAccount);
-      const account = accounts.find((a) => a.index === index);
+      const account = accounts.find((a) => a.key === btn.dataset.runAccount);
       if (account) runAccount(account);
     }),
   );
 
   container.querySelectorAll("input[data-select-account]").forEach((input) =>
     input.addEventListener("change", () => {
-      const index = Number(input.dataset.selectAccount);
-      if (input.checked) selectedForBatch.add(index);
-      else selectedForBatch.delete(index);
+      const key = input.dataset.selectAccount;
+      if (input.checked) selectedForBatch.add(key);
+      else selectedForBatch.delete(key);
       renderBatchToolbar(root);
     }),
   );
@@ -438,6 +448,21 @@ function render(root) {
     }),
   );
 
+  container.querySelectorAll("button[data-account-trend]").forEach((btn) =>
+    btn.addEventListener("click", () => {
+      const key = btn.dataset.accountTrend;
+      if (expandedTrends.has(key)) expandedTrends.delete(key);
+      else expandedTrends.add(key);
+      render(root);
+    }),
+  );
+  container.querySelectorAll("[data-history-chart]").forEach((chart) => {
+    const history = accountsPayload.histories[chart.dataset.historyChart] || [];
+    lineChart(chart, history.map((entry) => ({
+      key: entry.ts.slice(0, 10), value: entry.points, label: U.fmtDateTime(entry.ts),
+    })), { emptyMessage: "No point history recorded for this account yet." });
+  });
+
   container.querySelectorAll("button[data-arm-delete]").forEach((btn) =>
     btn.addEventListener("click", () => {
       deleteArmed.add(btn.dataset.armDelete);
@@ -473,6 +498,7 @@ export default {
     context = ctx;
     root.innerHTML = `
       <p class="notice notice--warn" id="accountsError" hidden></p>
+      <label class="check"><input type="checkbox" id="accountsIncludeHistory"><span>Include removed and disabled servers (read-only)</span></label>
       <div class="panel batch-select-box" id="accountsBatchToolbar">
           <div class="batch-select-header">
               <h2 class="batch-select-title">Batch run</h2>
@@ -494,9 +520,13 @@ export default {
     `;
     mounted = true;
 
+    U.$("#accountsIncludeHistory", root).addEventListener("change", (event) => {
+      includeHistory = event.target.checked;
+      void this.refresh(context).catch((error) => context.toast(error.message, "error"));
+    });
     U.$("#accountsSelectAll", root).addEventListener("change", (e) => {
       const configured = selectableAccounts();
-      if (e.target.checked) configured.forEach((a) => selectedForBatch.add(a.index));
+      if (e.target.checked) configured.forEach((a) => selectedForBatch.add(a.key));
       else selectedForBatch.clear();
       render(root);
     });
@@ -510,21 +540,21 @@ export default {
     context = ctx;
     // Don't rebuild the DOM underneath an open day picker.
     if (document.activeElement?.matches?.("select[data-act-day-select]")) return;
-    const [accounts, activity] = await Promise.all([
-      cached("accounts", ctx.api.accounts, 5000),
-      cached("activityDays", () => ctx.api.activityDays(), 5000).catch((e) => {
-        activityError = e?.message || "request failed";
-        return null;
-      }),
-    ]);
-    accountsPayload = accounts;
-    if (activity) {
-      activityPayload = activity;
-      activityError = null;
-    }
+    const sequence = ++refreshSequence;
+    const nextGroups = await loadServers(ctx.api, ["summary", "accounts", "activityDays"], { historical: includeHistory });
+    if (sequence !== refreshSequence) return;
+    groups = nextGroups;
+    accountsPayload = {
+      ...combineAccounts(groups),
+      apiError: groups.flatMap((group) => [...group.errors, group.accounts?.apiError].filter(Boolean).map((error) => `${group.server.name}: ${error}`)).join(" · "),
+    };
     this.redraw(ctx);
   },
 
+  onState(status, ctx) {
+    if (rootEl?.contains(document.activeElement)) return;
+    this.redraw(ctx);
+  },
   redraw(ctx) {
     context = ctx || context;
     if (!mounted || !accountsPayload) return;

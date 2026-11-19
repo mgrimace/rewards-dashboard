@@ -79,7 +79,7 @@ function render() {
 }
 
 function diagUrl(name, file) {
-  return `/api/diagnostics/${encodeURIComponent(name)}/${encodeURIComponent(file)}`;
+  return context.api.diagnosticFile(name, file);
 }
 
 // sessions

@@ -31,3 +31,4 @@ yarn-error.log*
 
 # Development resources
 dev-resources/
+/rewards-dashboard/test/

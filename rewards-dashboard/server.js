@@ -4,9 +4,10 @@ const http = require("node:http");
 const fs = require("node:fs");
 const path = require("node:path");
 const crypto = require("node:crypto");
+const { DatabaseSync } = require("node:sqlite");
 
 const { ControlApiClient, entryToDockerLine } = require("./lib/apiClient");
-const { EventHub } = require("./lib/eventHub");
+const { MultiEventHub } = require("./lib/multiEventHub");
 const { parseLine } = require("./lib/parser");
 const { Store } = require("./lib/store");
 const { completedBotOutcome } = require("./lib/outcome");
@@ -17,6 +18,9 @@ const { generateIndexModule, THEMES_DIR } = require("./lib/themeLoader");
 const { PendingLoginCodes } = require("./lib/pendingLoginCodes");
 const { mergeAccounts } = require("./lib/accounts");
 const { ActivityStore } = require("./lib/activityStore");
+const { Connections, testConnection } = require("./lib/connections");
+const { credentialRedactor } = require("./lib/redact");
+const { migrateServerData, NO_LEGACY_SERVER } = require("./lib/serverDataMigration");
 
 // confg
 const PORT = Number(process.env.PORT || 8890);
@@ -34,13 +38,6 @@ const POLL_MS = Math.max(1000, Number(process.env.POLL_MS || 5000));
 const LOG_REPLAY = Number(process.env.LOG_REPLAY || 300);
 const PUBLIC_DIR = path.join(__dirname, "public");
 
-const client = new ControlApiClient({
-  baseUrl: CONTROL_API_URL,
-  token: CONTROL_API_TOKEN,
-});
-const store = new Store();
-const pendingLoginCodes = new PendingLoginCodes();
-
 const log = (level, msg) => {
   const line = `[server] ${msg}`;
   if (level === "error") console.error(line);
@@ -48,12 +45,89 @@ const log = (level, msg) => {
   else console.log(line);
 };
 
-const hub = new EventHub({ client, replay: LOG_REPLAY, log });
+const dataDir = process.env.DATA_DIR || path.join(__dirname, "data");
+fs.mkdirSync(dataDir, { recursive: true, mode: 0o700 });
+const publicRealDir = fs.realpathSync(PUBLIC_DIR);
+const relativeDataDir = path.relative(publicRealDir, fs.realpathSync(dataDir));
+if (!relativeDataDir || (!relativeDataDir.startsWith(`..${path.sep}`) && relativeDataDir !== ".." && !path.isAbsolute(relativeDataDir)))
+  throw new Error("The data directory must not be inside the public static directory.");
+const dbFile = path.join(dataDir, "dashboard.sqlite");
+const existingDatabase = fs.existsSync(dbFile) && fs.statSync(dbFile).size > 0;
+for (const suffix of ["", "-wal", "-shm"]) {
+  const file = dbFile + suffix;
+  if (suffix) {
+    try { fs.lstatSync(file); }
+    catch (error) {
+      if (error.code === "ENOENT") continue;
+      throw error;
+    }
+  }
+  const fd = fs.openSync(file, fs.constants.O_RDWR | fs.constants.O_CREAT | (fs.constants.O_NOFOLLOW || 0), 0o600);
+  try {
+    if (!fs.fstatSync(fd).isFile()) throw new Error("Dashboard database files must be regular files.");
+    fs.fchmodSync(fd, 0o600);
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+const db = new DatabaseSync(dbFile);
+db.exec("PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL; PRAGMA secure_delete = ON;");
+const hasScopedAccounts = db.prepare("PRAGMA table_info(accounts)").all().some((col) => col.name === "server_id");
+let legacyStore = null;
+let connections;
+db.exec("BEGIN IMMEDIATE");
+try {
+  if (!hasScopedAccounts) {
+    legacyStore = new Store({ db });
+    new ActivityStore(db);
+  }
+  connections = new Connections(db, {
+    legacy: existingDatabase || process.env.CONTROL_API_URL || process.env.CONTROL_API_TOKEN
+      ? { apiUrl: CONTROL_API_URL, apiToken: CONTROL_API_TOKEN }
+      : null,
+  });
+  const marker = db.prepare(
+    "SELECT value FROM dashboard_connection_meta WHERE key = 'historical_server_id'",
+  ).get();
+  const legacyId = marker?.value || connections.list()[0]?.id || NO_LEGACY_SERVER;
+  migrateServerData(db, legacyId);
+  db.exec("COMMIT");
+} catch (error) {
+  db.exec("ROLLBACK");
+  if (legacyStore) legacyStore.close();
+  db.close();
+  throw error;
+}
+if (legacyStore) legacyStore.close();
+
+const multiHub = new MultiEventHub({ replay: LOG_REPLAY, log });
+const runtimes = new Map();
+const runtimeErrors = new Map();
+const AUTH_HINT = "Control API authentication was rejected. Check the connection token.";
+
+function createRuntime(server) {
+const config = connections.getClientConfig(server.id);
+const client = new ControlApiClient(config);
+const scrub = client.redact;
+const scrubError = scrub;
+const runtimeLog = (level, message) => log(level, scrubError(message));
+const activityClient = client;
+const store = new Store({ db, serverId: server.id });
+const pendingLoginCodes = new PendingLoginCodes();
+const hub = multiHub.addServer(server.id, client, { sanitize: scrub });
 // Structured per-activity data from the Control API (/history + /status extras).
-const activity = new ActivityStore(store.db, {
-  log,
-  resetHourUtc: process.env.ACTIVITY_RESET_HOUR_UTC ? Number(process.env.ACTIVITY_RESET_HOUR_UTC) : null,
-});
+let activity;
+try {
+  activity = new ActivityStore(store.db, {
+    log: runtimeLog,
+    serverId: server.id,
+    resetHourUtc: process.env.ACTIVITY_RESET_HOUR_UTC ? Number(process.env.ACTIVITY_RESET_HOUR_UTC) : null,
+  });
+} catch (error) {
+  multiHub.removeServer(server.id);
+  store.close();
+  throw error;
+}
 
 const scheduler = new Scheduler({
   client,
@@ -68,7 +142,7 @@ const scheduler = new Scheduler({
     backend.schedule = describeSchedule(scheduler.get());
     hub.broadcast("state", currentState());
   },
-  log,
+  log: runtimeLog,
 });
 
 function describeSchedule(sched) {
@@ -98,9 +172,6 @@ function describeRemoteSchedule(sched) {
   };
 }
 
-const AUTH_HINT =
-  "Control API rejected our token - CONTROL_API_TOKEN must match the API's API_TOKEN.";
-
 // live
 const backend = {
   reachable: false,
@@ -120,18 +191,22 @@ const backend = {
 let lastLogId = null;
 let lastHealthUptime = null;
 let lastHealthyCheckedAt = null;
+let stopped = false;
+let pollTimer = null;
 
 function currentState() {
   const botOutcome = completedBotOutcome(backend.bot);
   return {
     reachable: backend.reachable,
+    serverId: server.id,
+    serverName: server.name,
     authRequired: backend.authRequired,
     authOk: backend.authOk,
     lastError: backend.lastError,
     checkedAt: backend.checkedAt,
     displayName: DISPLAY_NAME,
     timezone: TIMEZONE,
-    controlApiUrl: CONTROL_API_URL,
+    controlApiUrl: server.apiUrl,
     name: backend.name,
     version: backend.version,
     uptimeSec: backend.uptimeSec,
@@ -179,7 +254,7 @@ hub.on("entry", (entry) => {
     if (entry.id != null)
       lastLogId = lastLogId == null ? entry.id : Math.max(lastLogId, entry.id);
   } catch (e) {
-    log("warn", `Could not ingest a log line: ${e.message}`);
+    runtimeLog("warn", `Could not ingest a log line: ${e.message}`);
   }
 });
 
@@ -196,11 +271,11 @@ hub.on("status", (status) => {
         summarySeen: Boolean(status.run?.totals),
       });
     } catch (e) {
-      log("warn", `Could not record the run exit: ${e.message}`);
+      runtimeLog("warn", `Could not record the run exit: ${e.message}`);
     }
     // Capture /status extras (earnable, searchSummary...) before the next run
     // replaces them, and pull the finished run from /history.
-    activity.syncSoon(client, status);
+    activity.syncSoon(activityClient, status);
   }
 
   hub.broadcast("state", currentState());
@@ -211,8 +286,10 @@ async function pollOnce() {
   let health;
   try {
     health = await client.get("/health");
+    if (stopped) return;
   } catch (error) {
-    if (error.statusCode !== 401) throw error;
+    if (stopped) return;
+    if (error.statusCode !== 401 && error.statusCode !== 403) throw error;
     backend.reachable = true;
     backend.authRequired = true;
     backend.authOk = false;
@@ -235,7 +312,7 @@ async function pollOnce() {
 
   if (typeof health.uptimeSec === "number") {
     if (lastHealthUptime != null && health.uptimeSec < lastHealthUptime) {
-      log("warn", "Control API restarted - resetting the log cursor.");
+      runtimeLog("warn", "Control API restarted - resetting the log cursor.");
       lastLogId = null;
       // The container (bot + Control API together) can be torn down mid-run
       // for all sorts of ordinary reasons (image update, manual restart,
@@ -256,10 +333,10 @@ async function pollOnce() {
             notStartedAfter: priorHealthyCheckedAt,
           })
         ) {
-          log("warn", "Closed a run stuck 'running' - the backend restarted mid-run.");
+          runtimeLog("warn", "Closed a run stuck 'running' - the backend restarted mid-run.");
         }
       } catch (e) {
-        log("warn", `Could not close the interrupted run: ${e.message}`);
+        runtimeLog("warn", `Could not close the interrupted run: ${e.message}`);
       }
       hub.markUpstreamRestarted();
     }
@@ -267,10 +344,10 @@ async function pollOnce() {
   }
   lastHealthyCheckedAt = backend.checkedAt;
 
-  if (backend.authRequired && !CONTROL_API_TOKEN) {
+  if (backend.authRequired && !config.token) {
     backend.authOk = false;
     backend.lastError =
-      "Control API requires a token - set CONTROL_API_TOKEN to the same value as its API_TOKEN.";
+      "Control API requires a token. Update the connection token.";
     backend.bot = { state: health.state || "unknown" };
     return;
   }
@@ -279,13 +356,15 @@ async function pollOnce() {
 
   try {
     backend.bot = await client.get("/status");
+    if (stopped) return;
   } catch (e) {
+    if (stopped) return;
     // Do not keep reporting a previous "running" snapshot when the status
     // endpoint is unavailable (for example while the Control API restarts).
     backend.bot = null;
-    if (e.statusCode === 401) authFailed = true;
+    if (e.statusCode === 401 || e.statusCode === 403) authFailed = true;
     backend.lastError =
-      e.statusCode === 401 ? AUTH_HINT : `Status unavailable (${e.message})`;
+      authFailed ? AUTH_HINT : `Status unavailable (${scrubError(e.message)})`;
   }
 
   // The bot's own /schedule endpoint is optional - older bot images (or ones
@@ -294,8 +373,10 @@ async function pollOnce() {
   // treated as a transient blip so the UI doesn't flicker the option away.
   try {
     backend.remoteSchedule = await client.get("/schedule");
+    if (stopped) return;
     backend.remoteScheduleSupported = true;
   } catch (e) {
+    if (stopped) return;
     backend.remoteSchedule = null;
     if (e.statusCode === 404) backend.remoteScheduleSupported = false;
   }
@@ -306,21 +387,45 @@ async function pollOnce() {
 }
 
 async function pollLoop() {
-  for (; ;) {
+  while (!stopped) {
     try {
       await pollOnce();
+      if (stopped) return;
       // Boot backfill, and a safety net if an exit event was missed.
       if (backend.reachable && backend.authOk && activity.needsSync(backend.bot))
-        activity.syncSoon(client, backend.bot);
+        activity.syncSoon(activityClient, backend.bot);
     } catch (e) {
+      if (stopped) return;
       backend.reachable = false;
       backend.bot = null;
-      backend.lastError = e.message;
+      backend.lastError = scrubError(e.message);
       backend.checkedAt = new Date().toISOString();
     }
     hub.broadcast("state", currentState());
-    await new Promise((r) => setTimeout(r, POLL_MS));
+    await new Promise((r) => { pollTimer = setTimeout(r, POLL_MS); });
   }
+}
+
+function start() {
+  scheduler.init();
+  backend.schedule = describeSchedule(scheduler.get());
+  hub.start();
+  void pollLoop();
+}
+
+async function stop() {
+  stopped = true;
+  clearTimeout(pollTimer);
+  scheduler.stop();
+  multiHub.removeServer(server.id);
+  if (activity._inFlight) {
+    try { await activity._inFlight; }
+    catch (error) { runtimeLog("warn", `Activity sync failed while stopping: ${error.message}`); }
+  }
+  store.close();
+}
+
+return { server, client, store, activity, scheduler, pendingLoginCodes, hub, backend, currentState, describeSchedule, describeRemoteSchedule, scrub, scrubError, start, stop, isActive: () => !stopped };
 }
 
 // helpers
@@ -417,17 +522,19 @@ function readJsonBody(req, limitBytes = 2_000_000) {
   });
 }
 
-async function waitForCompletedBotToIdle() {
-  if (!completedBotOutcome(backend.bot)) return false;
+async function waitForCompletedBotToIdle(runtime) {
+  const { backend, client, hub, currentState } = runtime;
+  if (!runtime.isActive() || !completedBotOutcome(backend.bot)) return false;
 
   const deadline = Date.now() + 10000;
-  while (Date.now() < deadline) {
+  while (runtime.isActive() && Date.now() < deadline) {
     let status;
     try {
       status = await client.get("/status");
     } catch {
       return false;
     }
+    if (!runtime.isActive()) return false;
     backend.bot = status;
     hub.broadcast("state", currentState());
     if (status.state === "idle") return true;
@@ -437,7 +544,8 @@ async function waitForCompletedBotToIdle() {
   return false;
 }
 
-async function forward(res, method, apiPath, body, retryCompletedStart = true) {
+async function forwardRequest(runtime, res, method, apiPath, body, retryCompletedStart = true) {
+  const { client } = runtime;
   try {
     const data = await client.request(method, apiPath, { body });
     return sendJson(res, 200, data ?? {});
@@ -448,14 +556,16 @@ async function forward(res, method, apiPath, body, retryCompletedStart = true) {
       method === "POST" &&
       apiPath === "/start" &&
       status === 409 &&
-      await waitForCompletedBotToIdle()
+      await waitForCompletedBotToIdle(runtime) &&
+      runtime.isActive()
     ) {
-      return forward(res, method, apiPath, body, false);
+      return forwardRequest(runtime, res, method, apiPath, body, false);
     }
-    const payload =
+    const payload = runtime.scrubError(
       e.body && typeof e.body === "object"
         ? e.body
-        : { error: e.message || "Control API unreachable" };
+        : { error: e.message || "Control API unreachable" },
+    );
     if (status === 401) payload.hint = AUTH_HINT;
     return sendJson(res, status, payload);
   }
@@ -464,20 +574,32 @@ async function forward(res, method, apiPath, body, retryCompletedStart = true) {
 function serveStatic(res, pathname) {
   const rel = pathname === "/" ? "/index.html" : pathname;
   const filePath = path.join(PUBLIC_DIR, rel);
-  if (!filePath.startsWith(PUBLIC_DIR)) {
+  const relative = path.relative(PUBLIC_DIR, filePath);
+  if (relative.startsWith(`..${path.sep}`) || relative === ".." || path.isAbsolute(relative)) {
     res.writeHead(403);
     return res.end("Forbidden");
   }
-  fs.readFile(filePath, (err, data) => {
+  fs.realpath(filePath, (err, realPath) => {
     if (err) {
       res.writeHead(404, { "Content-Type": "text/plain" });
       return res.end("Not found");
     }
-    res.writeHead(200, {
-      "Content-Type":
-        MIME[path.extname(filePath)] || "application/octet-stream",
+    const realRelative = path.relative(publicRealDir, realPath);
+    if (realRelative.startsWith(`..${path.sep}`) || realRelative === ".." || path.isAbsolute(realRelative)) {
+      res.writeHead(403);
+      return res.end("Forbidden");
+    }
+    fs.readFile(realPath, (readError, data) => {
+      if (readError) {
+        res.writeHead(404, { "Content-Type": "text/plain" });
+        return res.end("Not found");
+      }
+      res.writeHead(200, {
+        "Content-Type":
+          MIME[path.extname(filePath)] || "application/octet-stream",
+      });
+      res.end(data);
     });
-    res.end(data);
   });
 }
 
@@ -511,14 +633,215 @@ function serveThemeFile(res, filename) {
 // routes
 const DIAG_FILES = new Set(["screenshot.png", "error.txt", "dump.html"]);
 
+function connectionList() {
+  return connections.list().map((connection) => {
+    const runtime = runtimes.get(connection.id);
+    return {
+      ...connection,
+      status: !connection.enabled ? "disabled"
+        : !runtime ? "unavailable"
+          : runtime.backend.authOk === false ? "authentication"
+            : runtime.backend.reachable ? "connected"
+              : runtime.backend.checkedAt ? "unreachable" : "connecting",
+      checkedAt: runtime?.backend.checkedAt || null,
+      lastError: runtime?.backend.lastError || runtimeErrors.get(connection.id) || null,
+    };
+  });
+}
+
+function announceConnections() {
+  multiHub.broadcast("connections", { connections: connectionList() });
+}
+
+async function replaceRuntime(id) {
+  const previous = runtimes.get(id);
+  runtimes.delete(id);
+  if (previous) await previous.stop();
+  const connection = connections.get(id);
+  if (connection?.enabled) {
+    await startRuntime(connection);
+  } else {
+    runtimeErrors.delete(id);
+  }
+  announceConnections();
+}
+
+async function startRuntime(connection) {
+  let runtime;
+  try {
+    runtime = createRuntime(connection);
+    runtimes.set(connection.id, runtime);
+    runtime.start();
+    runtimeErrors.delete(connection.id);
+  } catch (error) {
+    runtimes.delete(connection.id);
+    if (runtime) await runtime.stop();
+    else multiHub.removeServer(connection.id);
+    const token = connections.getClientConfig(connection.id)?.token;
+    const message = credentialRedactor(token)(error.message);
+    runtimeErrors.set(connection.id, message);
+    announceConnections();
+    throw new Error(message);
+  }
+}
+
+let connectionOperations = Promise.resolve();
+function changeConnections(operation) {
+  const result = connectionOperations.then(operation);
+  connectionOperations = result.then(() => {}, () => {});
+  return result;
+}
+
 async function handleApi(req, res, url) {
   const { pathname, searchParams } = url;
   const method = req.method || "GET";
 
+  if (pathname === "/api/health" && method === "GET") {
+    const active = [...runtimes.values()];
+    return sendJson(res, 200, {
+      ok: true,
+      controlApi: active.some((runtime) => runtime.backend.reachable),
+      controlApiAuthOk: active.some((runtime) => runtime.backend.authOk),
+      streamConnected: active.some((runtime) => runtime.hub.connected),
+    });
+  }
+
+  if (pathname === "/api/connections" && method === "GET") {
+    const active = connectionList();
+    const deleted = searchParams.get("includeDeleted") === "1"
+      ? connections.list({ includeDeleted: true }).filter((item) => item.deletedAt)
+      : [];
+    return sendJson(res, 200, { connections: [...active, ...deleted] });
+  }
+
+  if (pathname === "/api/connections" && method === "POST") {
+    const body = await readJsonBody(req);
+    const connection = await changeConnections(async () => {
+      const created = connections.add(body);
+      await replaceRuntime(created.id);
+      return created;
+    });
+    return sendJson(res, 201, connection);
+  }
+
+  if (pathname === "/api/connections/order" && method === "PUT") {
+    const body = await readJsonBody(req);
+    const result = await changeConnections(async () => {
+      const ordered = connections.reorder(body.ids);
+      announceConnections();
+      return ordered;
+    });
+    return sendJson(res, 200, { connections: result });
+  }
+
+  if (pathname === "/api/connections/test" && method === "POST") {
+    const body = await readJsonBody(req);
+    const saved = body.id ? connections.getClientConfig(body.id) : null;
+    if (body.id && !saved) return sendJson(res, 404, { error: "Connection not found." });
+    if (saved && body.apiUrl && !Object.hasOwn(body, "apiToken")) {
+      let candidate;
+      try { candidate = new URL(body.apiUrl).href.replace(/\/+$/, ""); } catch {}
+      if (candidate !== saved.baseUrl)
+        return sendJson(res, 400, { error: "Enter the token again to test a different URL." });
+    }
+    const result = await testConnection({
+      apiUrl: body.apiUrl ?? saved?.baseUrl,
+      apiToken: Object.hasOwn(body, "apiToken") ? body.apiToken : saved?.token ?? "",
+    });
+    return sendJson(res, 200, result);
+  }
+
+  if (pathname.startsWith("/api/connections/")) {
+    const id = decodeURIComponent(pathname.slice("/api/connections/".length));
+    if (!id || id.includes("/")) return sendJson(res, 404, { error: "Connection not found." });
+    if (method === "PATCH") {
+      const body = await readJsonBody(req);
+      const result = await changeConnections(async () => {
+        const updated = connections.update(id, body);
+        if (updated) {
+          if ("apiUrl" in body || "apiToken" in body || "enabled" in body) {
+            await replaceRuntime(id);
+          } else {
+            const active = runtimes.get(id);
+            if (active) {
+              active.server.name = updated.name;
+              active.hub.broadcast("state", active.currentState());
+            }
+            announceConnections();
+          }
+        }
+        return updated;
+      });
+      return result ? sendJson(res, 200, result) : sendJson(res, 404, { error: "Connection not found." });
+    }
+    if (method === "DELETE") {
+      const removed = await changeConnections(async () => {
+        if (!connections.remove(id)) return false;
+        await replaceRuntime(id);
+        return true;
+      });
+      return removed ? sendJson(res, 200, { ok: true }) : sendJson(res, 404, { error: "Connection not found." });
+    }
+  }
+
+  const serverId = req.headers["x-server-id"] || searchParams.get("serverId");
+  const runtime = serverId ? runtimes.get(serverId) : null;
+
   // live
   if (pathname === "/api/events" && method === "GET") {
-    return hub.addClient(req, res, currentState());
+    const snapshot = runtime ? runtime.currentState() : {
+      reachable: false, authOk: false, timezone: TIMEZONE, codes: [],
+    };
+    return multiHub.addClient(req, res, snapshot, connectionList());
   }
+
+  if (!serverId) return sendJson(res, 400, { error: "Select a server first." });
+  if (!runtime && method === "GET" && searchParams.get("history") === "1") {
+    const archived = connections.list({ includeDeleted: true }).find((item) => item.id === serverId);
+    if (!archived) return sendJson(res, 404, { error: "Server not found." });
+    const historicalStore = new Store({ db, serverId, readOnly: true });
+    try {
+      if (pathname === "/api/summary") {
+        return sendJson(res, 200, {
+          status: { serverId, serverName: archived.name, reachable: false, botRunning: false },
+          accounts: historicalStore.snapshotAccounts(),
+          runs: historicalStore.snapshotRuns(30),
+          activity: historicalStore.snapshotActivity(120),
+        });
+      }
+      if (pathname === "/api/accounts") {
+        const historyDays = Math.min(3650, Math.max(0, Number(searchParams.get("historyDays")) || 0));
+        const days = searchParams.get("historyDays") === "all" ? null : searchParams.has("historyDays") ? historyDays : 365;
+        const since = days ? new Date(Date.now() - days * 86400000).toISOString() : null;
+        const histories = days !== 0 ? historicalStore.allAccountHistories({ since }) : {};
+        return sendJson(res, 200, {
+          accounts: mergeAccounts([], historicalStore.snapshotAccounts(), histories, historicalStore.accountActivities()),
+          histories, historyDays: days, apiError: null,
+        });
+      }
+      if (pathname === "/api/runs") {
+        const limit = Math.min(500, Math.max(1, Number(searchParams.get("limit")) || 50));
+        const offset = Math.max(0, Math.floor(Number(searchParams.get("offset")) || 0));
+        return sendJson(res, 200, { runs: historicalStore.snapshotRuns(limit, offset), exits: [], apiError: null });
+      }
+      if (pathname === "/api/logs") {
+        const limit = Math.min(5000, Math.max(1, Number(searchParams.get("limit")) || 500));
+        return sendJson(res, 200, { logs: historicalStore.snapshotActivity(limit), historical: true });
+      }
+      if (pathname === "/api/activity-days") {
+        const days = searchParams.get("days") === "all" ? null : Math.min(60, Math.max(1, Number(searchParams.get("days")) || 14));
+        const history = new ActivityStore(db, { serverId });
+        history.booted = true;
+        return sendJson(res, 200, JSON.parse(history.payload({ days }).json.toString("utf8")));
+      }
+      return sendJson(res, 404, { error: "Historical endpoint not found." });
+    } finally {
+      historicalStore.close();
+    }
+  }
+  if (!runtime) return sendJson(res, 404, { error: "Server is disabled or not found." });
+  const { client, store, activity, scheduler, pendingLoginCodes, hub, backend, currentState, describeSchedule, describeRemoteSchedule } = runtime;
+  const forward = (response, verb, apiPath, body) => forwardRequest(runtime, response, verb, apiPath, body);
 
   // read
   if (pathname === "/api/summary" && method === "GET") {
@@ -537,13 +860,13 @@ async function handleApi(req, res, url) {
       const data = await client.get("/accounts");
       apiAccounts = data.accounts || [];
     } catch (e) {
-      apiError = e.statusCode === 401 ? AUTH_HINT : e.message;
+      apiError = e.statusCode === 401 ? AUTH_HINT : runtime.scrubError(e.message);
     }
     const historyDays = Math.min(
       3650,
       Math.max(0, Number(searchParams.get("historyDays")) || 0),
     );
-    const effectiveHistoryDays = searchParams.has("historyDays")
+    const effectiveHistoryDays = searchParams.get("historyDays") === "all" ? null : searchParams.has("historyDays")
       ? historyDays
       : 365;
     const since =
@@ -553,7 +876,7 @@ async function handleApi(req, res, url) {
         ).toISOString()
         : null;
     const histories =
-      effectiveHistoryDays > 0 ? store.allAccountHistories({ since }) : {};
+      effectiveHistoryDays !== 0 ? store.allAccountHistories({ since }) : {};
     return sendJson(res, 200, {
       accounts: mergeAccounts(
         apiAccounts,
@@ -572,16 +895,17 @@ async function handleApi(req, res, url) {
       500,
       Math.max(1, Number(searchParams.get("limit")) || 50),
     );
+    const offset = Math.max(0, Math.floor(Number(searchParams.get("offset")) || 0));
     let exits = [];
     let apiError = null;
     try {
       const data = await client.get(`/history?limit=${limit}`);
       exits = data.runs || [];
     } catch (e) {
-      apiError = e.statusCode === 401 ? AUTH_HINT : e.message;
+      apiError = e.statusCode === 401 ? AUTH_HINT : runtime.scrubError(e.message);
     }
     return sendJson(res, 200, {
-      runs: store.snapshotRuns(limit),
+      runs: store.snapshotRuns(limit, offset),
       exits,
       apiError,
     });
@@ -597,7 +921,7 @@ async function handleApi(req, res, url) {
     const headers = {
       "Cache-Control": "no-cache", // always revalidate; unchanged data is a 304
       ETag: p.etag,
-      Vary: "Accept-Encoding",
+      Vary: "Accept-Encoding, X-Server-ID",
     };
     if (req.headers["if-none-match"] === p.etag) {
       res.writeHead(304, headers);
@@ -676,10 +1000,11 @@ async function handleApi(req, res, url) {
           });
         } catch (e) {
           const status = e.statusCode || 502;
-          const payload =
+          const payload = runtime.scrubError(
             e.body && typeof e.body === "object"
               ? e.body
-              : { error: e.message || "Control API unreachable" };
+              : { error: e.message || "Control API unreachable" },
+          );
           return sendJson(res, status, payload);
         }
       }
@@ -693,7 +1018,7 @@ async function handleApi(req, res, url) {
         });
       } catch (e) {
         return sendJson(res, e.code === "BAD_REQUEST" ? 400 : 500, {
-          error: e.message,
+          error: runtime.scrubError(e.message),
         });
       }
     }
@@ -752,14 +1077,38 @@ async function handleApi(req, res, url) {
       const upstream = await client.stream(
         `/diagnostics/${encodeURIComponent(name)}/${encodeURIComponent(file)}`,
       );
+      const chunks = [];
+      let size = 0;
+      for await (const chunk of upstream) {
+        size += chunk.length;
+        if (size > 10_000_000) {
+          upstream.destroy();
+          return sendJson(res, 502, { error: "Diagnostic file exceeds the size limit." });
+        }
+        chunks.push(chunk);
+      }
+      const content = Buffer.concat(chunks);
+      if (file === "screenshot.png") {
+        if (runtime.scrub.containsBytes(content))
+          return sendJson(res, 502, { error: "Diagnostic screenshot contains a credential and cannot be displayed." });
+        res.writeHead(200, { "Content-Type": "image/png", "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff" });
+        return res.end(content);
+      }
+      let text;
+      try {
+        text = new TextDecoder("utf-8", { fatal: true }).decode(content);
+      } catch {
+        return sendJson(res, 502, { error: "Diagnostic file is not valid UTF-8." });
+      }
+      const sanitized = runtime.scrub(text);
       res.writeHead(200, {
-        "Content-Type":
-          upstream.headers["content-type"] || "application/octet-stream",
+        "Content-Type": "text/plain; charset=utf-8",
         "Cache-Control": "no-store",
+        "X-Content-Type-Options": "nosniff",
       });
-      return upstream.pipe(res);
+      return res.end(sanitized);
     } catch (e) {
-      return sendJson(res, e.statusCode || 502, { error: e.message });
+      return sendJson(res, e.statusCode || 502, { error: runtime.scrubError(e.message) });
     }
   }
 
@@ -786,7 +1135,7 @@ async function handleApi(req, res, url) {
       hub.broadcast("state", currentState());
       return sendJson(res, 200, { ok: true });
     } catch (e) {
-      return sendJson(res, 500, { error: e.message });
+      return sendJson(res, 500, { error: runtime.scrubError(e.message) });
     }
   }
 
@@ -798,16 +1147,6 @@ async function handleApi(req, res, url) {
     }
     const body = await readJsonBody(req);
     return forward(res, "POST", `/${action}`, body);
-  }
-
-  // health
-  if (pathname === "/api/health" && method === "GET") {
-    return sendJson(res, 200, {
-      ok: true,
-      controlApi: backend.reachable,
-      controlApiAuthOk: backend.authOk,
-      streamConnected: hub.connected,
-    });
   }
 
   return sendJson(res, 404, { error: "Not found", path: pathname });
@@ -825,9 +1164,23 @@ const server = http.createServer((req, res) => {
   }
 
   if (pathname.startsWith("/api/")) {
+    if (["POST", "PUT", "PATCH", "DELETE"].includes(req.method)) {
+      const origin = req.headers.origin;
+      if (origin && (() => {
+        try { return new URL(origin).host !== req.headers.host; } catch { return true; }
+      })()) return sendJson(res, 403, { error: "Cross-origin requests are not allowed." });
+      if (["POST", "PUT", "PATCH"].includes(req.method) &&
+          !/^application\/json(?:\s*;|$)/i.test(req.headers["content-type"] || ""))
+        return sendJson(res, 415, { error: "Content-Type must be application/json." });
+    }
     return handleApi(req, res, url).catch((e) => {
-      log("error", `Request failed: ${e.message}`);
-      if (!res.headersSent) sendJson(res, 500, { error: e.message });
+      if (e.code === "BAD_REQUEST") {
+        if (!res.headersSent) sendJson(res, 400, { error: e.message });
+      } else {
+        log("error", "Request failed.");
+        if (!res.headersSent) sendJson(res, 500, { error: "Request failed." });
+      }
+      if (res.headersSent && !res.writableEnded) res.destroy();
     });
   }
 
@@ -835,17 +1188,7 @@ const server = http.createServer((req, res) => {
 });
 
 server.listen(PORT, () => {
-  log("info", `Rewards dashboard listening on :${PORT}`);
-  log(
-    "info",
-    `Control API: ${CONTROL_API_URL}${CONTROL_API_TOKEN ? " (token set)" : " (no token)"}`,
-  );
-  if (!CONTROL_API_TOKEN) {
-    log(
-      "warn",
-      "CONTROL_API_TOKEN is empty - this only works if the Control API runs without an API_TOKEN.",
-    );
-  }
+  log("info", `Rewards dashboard listening on :${server.address().port}`);
   if (Boolean(DASHBOARD_USERNAME) !== Boolean(DASHBOARD_PASSWORD)) {
     log(
       "warn",
@@ -856,19 +1199,24 @@ server.listen(PORT, () => {
     "info",
     `Dashboard authentication: ${DASHBOARD_AUTH_ENABLED ? `enabled (user: ${DASHBOARD_USERNAME})` : "disabled"}`,
   );
-  scheduler.init();
-  backend.schedule = describeSchedule(scheduler.get());
-  hub.start();
-  pollLoop();
+  for (const connection of connections.list()) {
+    if (!connection.enabled) continue;
+    void startRuntime(connection).catch(() =>
+      log("error", "Could not start connection."),
+    );
+  }
 });
 
-function shutdown() {
+let shuttingDown = false;
+async function shutdown() {
+  if (shuttingDown) return;
+  shuttingDown = true;
   log("info", "Shutting down…");
-  scheduler.stop();
-  hub.stop();
-  store.close();
-  server.close(() => process.exit(0));
-  setTimeout(() => process.exit(0), 2000).unref();
+  server.close();
+  await Promise.all([...runtimes.values()].map((runtime) => runtime.stop()));
+  multiHub.stop();
+  db.close();
+  process.exit(0);
 }
-process.on("SIGINT", shutdown);
-process.on("SIGTERM", shutdown);
+process.on("SIGINT", () => void shutdown());
+process.on("SIGTERM", () => void shutdown());

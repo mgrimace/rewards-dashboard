@@ -20,6 +20,11 @@ let initialTargetChosen = false;
 let current = null;
 let dirty = false;
 let accountOptions = [];
+let context = null;
+let descriptionSequence = 0;
+let cronValid = false;
+let saving = false;
+let refreshSequence = 0;
 
 function syncCurrent() {
   current = data ? data[target] : null;
@@ -44,7 +49,7 @@ function fields() {
 
 function markDirty() {
   dirty = true;
-  U.$("#schedSave", rootEl).disabled = false;
+  U.$("#schedSave", rootEl).disabled = !cronValid;
 }
 
 function paintTargetToggle() {
@@ -76,11 +81,14 @@ function paintTargetToggle() {
 }
 
 function paint() {
+  descriptionSequence++;
+  cronValid = false;
   syncCurrent();
   paintTargetToggle();
 
   const misfireGroup = U.$("#schedMisfireGroup", rootEl);
   if (misfireGroup) misfireGroup.hidden = target === "remote";
+  U.$("#schedLoading", rootEl).hidden = true;
 
   if (!current) {
     U.$("#schedFormBody", rootEl).hidden = true;
@@ -166,20 +174,26 @@ function renderAccountExclusions() {
 
 async function describe(expr) {
   const out = U.$("#schedDesc", rootEl);
+  const sequence = ++descriptionSequence;
+  cronValid = false;
+  U.$("#schedSave", rootEl).disabled = true;
   if (!expr) {
     out.textContent = "Enter a 5-field cron expression.";
     out.className = "sched-desc";
     return;
   }
   try {
-    const res = await (
-      await fetch(`/api/cron?expr=${encodeURIComponent(expr)}`)
-    ).json();
+    const res = await context.api.describeCron(expr);
+    if (sequence !== descriptionSequence) return;
+    cronValid = res.valid;
     out.textContent = res.valid ? res.description : res.error;
     out.className = `sched-desc ${res.valid ? "sched-desc--ok" : "sched-desc--bad"}`;
     U.$("#schedSave", rootEl).disabled = !res.valid || !dirty;
-  } catch {
-    out.textContent = "";
+  } catch (error) {
+    if (sequence !== descriptionSequence) return;
+    out.textContent = `Unable to validate cron: ${error.message}`;
+    out.className = "sched-desc sched-desc--bad";
+    U.$("#schedSave", rootEl).disabled = true;
   }
 }
 
@@ -190,6 +204,7 @@ export default {
 
   mount(root, ctx) {
     rootEl = root;
+    context = ctx;
     root.innerHTML = `
             <section class="panel" aria-labelledby="sched-heading">
                 <div class="panel-head">
@@ -206,7 +221,8 @@ export default {
                     &#9888; Both schedulers are currently enabled &mdash; runs may double-fire. Disable one of them below.
                 </p>
 
-                <div class="form" id="schedFormBody">
+                <p class="empty-note" id="schedLoading">Loading schedule&hellip;</p>
+                <div class="form" id="schedFormBody" hidden>
                     <label class="check check--row">
                         <input type="checkbox" id="schedEnabled">
                         <span><strong>Enabled</strong> &mdash; fire runs on the schedule below</span>
@@ -281,13 +297,13 @@ export default {
             </section>`;
 
     const cronInput = U.$("#schedCron", root);
-    cronInput.addEventListener(
-      "input",
-      U.debounce(() => {
-        markDirty();
-        describe(cronInput.value.trim());
-      }, 250),
-    );
+    const describeInput = U.debounce(() => describe(cronInput.value.trim()), 250);
+    cronInput.addEventListener("input", () => {
+      descriptionSequence++;
+      cronValid = false;
+      markDirty();
+      describeInput();
+    });
     U.$("#schedEnabled", root).addEventListener("change", markDirty);
     U.$("#schedSkip", root).addEventListener("change", markDirty);
     U.$("#schedMisfire", root).addEventListener("change", (event) => {
@@ -333,6 +349,8 @@ export default {
         return;
       }
       btn.disabled = true;
+      saving = true;
+      refreshSequence++;
       try {
         data = await ctx.api.saveSchedule(patch, target);
         paint();
@@ -346,16 +364,32 @@ export default {
       } catch (e) {
         btn.disabled = false;
         U.toast(e.message, "error");
+      } finally {
+        saving = false;
       }
     });
   },
 
   async refresh(ctx) {
-    if (dirty) return;
-    const [scheduleResp, accountsPayload] = await Promise.all([
-      ctx.api.schedule(),
-      ctx.api.accounts(0),
-    ]);
+    context = ctx;
+    if (dirty || saving) return;
+    const sequence = ++refreshSequence;
+    let scheduleResp;
+    let accountsPayload;
+    try {
+      [scheduleResp, accountsPayload] = await Promise.all([
+        ctx.api.schedule(),
+        ctx.api.accounts(0),
+      ]);
+    } catch (error) {
+      if (sequence === refreshSequence && !dirty && !saving) {
+        U.$("#schedLoading", rootEl).hidden = true;
+        U.$("#schedFormBody", rootEl).hidden = true;
+        U.$("#schedUnavailable", rootEl).hidden = false;
+      }
+      throw error;
+    }
+    if (sequence !== refreshSequence || dirty || saving) return;
     data = scheduleResp;
 
     // Land on whichever scheduler is actually doing something, the first
@@ -373,5 +407,13 @@ export default {
       (account) => account.configured && Number.isInteger(account.index),
     );
     paint();
+  },
+
+  canChangeServer() {
+    if (saving) {
+      U.toast("Wait for the schedule to finish saving.", "warn");
+      return false;
+    }
+    return !dirty || window.confirm("Discard unsaved schedule changes and switch server?");
   },
 };

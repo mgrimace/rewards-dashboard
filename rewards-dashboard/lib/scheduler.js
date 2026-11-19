@@ -40,9 +40,11 @@ class Scheduler {
     this.lastResult = null;
     this.lastHandledScheduledAt = null;
     this.firing = false;
+    this.stopped = false;
   }
 
   init() {
+    this.stopped = false;
     const saved = this.store.getSchedule();
     const missedScheduledAt = saved?.nextRunAt || null;
     if (saved && typeof saved === "object") {
@@ -149,6 +151,7 @@ class Scheduler {
   }
 
   stop() {
+    this.stopped = true;
     clearTimeout(this.timer);
     this.timer = null;
   }
@@ -166,6 +169,7 @@ class Scheduler {
   _arm() {
     clearTimeout(this.timer);
     this.timer = null;
+    if (this.stopped) return;
     this.nextRunAt = null;
 
     if (!this.config.enabled) {
@@ -195,12 +199,13 @@ class Scheduler {
     scheduledAt = new Date().toISOString(),
     recovered = false,
   } = {}) {
-    if (this.firing) return;
+    if (this.stopped || this.firing) return;
     this.firing = true;
     this.lastTriggeredAt = new Date().toISOString();
     this.lastHandledScheduledAt = scheduledAt;
 
     try {
+      this._persist();
       if (this.config.skipIfRunning && this.isBusy()) {
         this.lastResult = "skipped (a run was already in progress)";
         this.log(
@@ -231,10 +236,15 @@ class Scheduler {
         }
       }
     } finally {
-      this._persist();
-      this._arm(); // queue the following occurrence
-      this.onChange();
-      this.firing = false;
+      try {
+        if (!this.stopped) {
+          this._persist();
+          this._arm(); // queue the following occurrence
+          this.onChange();
+        }
+      } finally {
+        this.firing = false;
+      }
     }
   }
 

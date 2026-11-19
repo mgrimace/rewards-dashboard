@@ -18,6 +18,8 @@
  */
 
 const zlib = require("node:zlib");
+const { randomUUID } = require("node:crypto");
+const { serverSql } = require("./serverSql");
 const {
   normalizeRun,
   buildDaysFromEntries,
@@ -110,50 +112,61 @@ function trimAccount(a) {
 class ActivityStore {
   /**
    * @param {import("node:sqlite").DatabaseSync} db  the dashboard's existing DB
-   * @param {{retentionDays?: number, log?: Function}} [opts]
+   * @param {{retentionDays?: number, log?: Function, resetHourUtc?: number, serverId?: string}} [opts]
    */
-  constructor(db, { retentionDays = 120, log = () => {}, resetHourUtc = null } = {}) {
+  constructor(db, { retentionDays = 120, log = () => {}, resetHourUtc = null, serverId = null } = {}) {
     this.db = db;
     this.retentionDays = retentionDays;
     this.log = log;
-    db.exec(SCHEMA);
+    if (serverId !== null && (typeof serverId !== "string" || !serverId))
+      throw new Error("A valid server ID is required.");
+    if (serverId === null) {
+      db.exec(SCHEMA);
+    } else {
+      for (const table of ["run_account_snapshots", "punchcard_progress"]) {
+        const cols = db.prepare(`PRAGMA table_info(${table})`).all();
+        if (!cols.some((col) => col.name === "server_id"))
+          throw new Error(`The ${table} table is not server-scoped.`);
+      }
+    }
+    const { filter, serverColumn, serverValue, prepare } = serverSql(db, serverId);
     this.stmts = {
-      insert: db.prepare(
-        `INSERT OR IGNORE INTO run_account_snapshots (run_id, email, ended_at, snapshot)
-         VALUES (?, ?, ?, ?)`,
+      insert: prepare(
+        `INSERT OR IGNORE INTO run_account_snapshots (${serverColumn}run_id, email, ended_at, snapshot)
+         VALUES (${serverValue}?, ?, ?, ?)`,
       ),
-      byRun: db.prepare(
-        "SELECT email, snapshot FROM run_account_snapshots WHERE run_id = ?",
+      byRun: prepare(
+        `SELECT email, snapshot FROM run_account_snapshots WHERE ${filter} AND run_id = ?`,
       ),
-      update: db.prepare(
-        "UPDATE run_account_snapshots SET snapshot = ? WHERE run_id = ? AND email = ?",
+      update: prepare(
+        `UPDATE run_account_snapshots SET snapshot = ? WHERE ${filter} AND run_id = ? AND email = ?`,
       ),
-      since: db.prepare(
+      since: prepare(
         `SELECT snapshot FROM run_account_snapshots
-         WHERE ended_at >= ? ORDER BY ended_at ASC`,
+         WHERE ${filter} AND ended_at >= ? ORDER BY ended_at ASC`,
       ),
-      prune: db.prepare("DELETE FROM run_account_snapshots WHERE ended_at < ?"),
-      count: db.prepare("SELECT COUNT(*) AS n FROM run_account_snapshots"),
-      latestSnapshot: db.prepare(
-        "SELECT snapshot FROM run_account_snapshots ORDER BY ended_at DESC LIMIT 1",
+      prune: prepare(`DELETE FROM run_account_snapshots WHERE ${filter} AND ended_at < ?`),
+      count: prepare(`SELECT COUNT(*) AS n FROM run_account_snapshots WHERE ${filter}`),
+      latestSnapshot: prepare(
+        `SELECT snapshot FROM run_account_snapshots WHERE ${filter} ORDER BY ended_at DESC LIMIT 1`,
       ),
-      pcGet: db.prepare(
-        "SELECT done, total, locked FROM punchcard_progress WHERE email = ? AND offer_id = ? AND day = ?",
+      pcGet: prepare(
+        `SELECT done, total, locked FROM punchcard_progress WHERE ${filter} AND email = ? AND offer_id = ? AND day = ?`,
       ),
-      pcUpsert: db.prepare(
-        `INSERT INTO punchcard_progress (email, offer_id, day, done, total, locked, seen_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?)
-         ON CONFLICT (email, offer_id, day) DO UPDATE SET
+      pcUpsert: prepare(
+        `INSERT INTO punchcard_progress (${serverColumn}email, offer_id, day, done, total, locked, seen_at)
+         VALUES (${serverValue}?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT (${serverColumn}email, offer_id, day) DO UPDATE SET
            done = excluded.done, total = excluded.total,
            locked = excluded.locked, seen_at = excluded.seen_at`,
       ),
-      pcForAccount: db.prepare(
+      pcForAccount: prepare(
         `SELECT offer_id, day, done, total, locked FROM punchcard_progress
-         WHERE email = ? AND day <= ? AND day >= ? ORDER BY day DESC, seen_at DESC`,
+         WHERE ${filter} AND email = ? AND day <= ? AND day >= ? ORDER BY day DESC, seen_at DESC`,
       ),
-      pcPrune: db.prepare("DELETE FROM punchcard_progress WHERE day < ?"),
-      latestForEmail: db.prepare(
-        "SELECT run_id, snapshot FROM run_account_snapshots WHERE email = ? ORDER BY ended_at DESC LIMIT 1",
+      pcPrune: prepare(`DELETE FROM punchcard_progress WHERE ${filter} AND day < ?`),
+      latestForEmail: prepare(
+        `SELECT run_id, snapshot FROM run_account_snapshots WHERE ${filter} AND email = ? ORDER BY ended_at DESC LIMIT 1`,
       ),
     };
     // The hour (UTC) the Rewards day rolls over, learned from stored runs.
@@ -172,7 +185,7 @@ class ActivityStore {
     // Bumped whenever stored data changes; drives the cached payload + ETag.
     // The epoch keeps ETags unique across restarts.
     this.version = 0;
-    this._epoch = Date.now().toString(36);
+    this._epoch = randomUUID();
     this._payloads = new Map();
   }
 
@@ -411,7 +424,7 @@ class ActivityStore {
    * @returns {{ accounts: Record<string, object[]> }}  newest day first
    */
   daysAll({ days = 14, now = Date.now() } = {}) {
-    const cutoff = new Date(now - (days + 2) * DAY_MS).toISOString();
+    const cutoff = days === null ? "0000-01-01T00:00:00.000Z" : new Date(now - (days + 2) * DAY_MS).toISOString();
     const entries = this.stmts
       .since.all(cutoff)
       .map((r) => JSON.parse(r.snapshot));
@@ -420,9 +433,8 @@ class ActivityStore {
     for (const [email, byDay] of built) {
       for (const d of byDay.values())
         if (!d.punchcards.length) d.punchcards = this.punchcardsFor(email, d.day);
-      accounts[email] = [...byDay.values()]
-        .sort((a, b) => b.day.localeCompare(a.day))
-        .slice(0, days);
+      const sorted = [...byDay.values()].sort((a, b) => b.day.localeCompare(a.day));
+      accounts[email] = days === null ? sorted : sorted.slice(0, days);
     }
     return { accounts };
   }

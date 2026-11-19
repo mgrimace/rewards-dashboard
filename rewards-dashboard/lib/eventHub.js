@@ -10,7 +10,7 @@ const SSE_HEADERS = {
 };
 
 class EventHub extends EventEmitter {
-  constructor({ client, replay = 300, bufferSize = 1500, log = () => { } }) {
+  constructor({ client, replay = 300, bufferSize = 1500, log = () => { }, forward = null, sanitize = (value) => value }) {
     super();
     this.setMaxListeners(0);
 
@@ -18,6 +18,8 @@ class EventHub extends EventEmitter {
     this.replay = replay;
     this.bufferSize = bufferSize;
     this.log = log;
+    this.forward = forward;
+    this.sanitize = sanitize;
 
     this.clients = new Set();
     this.buffer = []; // [{ seq, event, data }]
@@ -30,10 +32,14 @@ class EventHub extends EventEmitter {
     this.retryTimer = null;
     this.watchdog = null;
     this.lastUpstreamData = 0;
-    this.stopped = false;
+    this.stopped = true;
+    this.connecting = false;
+    this.connectAbort = null;
+    this.generation = 0;
   }
 
   start() {
+    if (!this.stopped) return;
     this.stopped = false;
     this._connect();
     this.watchdog = setInterval(() => {
@@ -71,12 +77,21 @@ class EventHub extends EventEmitter {
   // ---- upstream ---------------------------------------------------------
 
   async _connect() {
-    if (this.stopped || this.upstream) return;
+    if (this.stopped || this.upstream || this.connecting) return;
+    const generation = ++this.generation;
+    this.connecting = true;
+    const controller = new AbortController();
+    this.connectAbort = controller;
     try {
       const { req, res } = await this.client.sse({
         replay: this.upstreamLastId == null ? this.replay : 0,
         lastEventId: this.upstreamLastId,
+        signal: controller.signal,
       });
+      if (this.stopped || generation !== this.generation) {
+        req.destroy();
+        return;
+      }
       this.upstream = { req, res };
       this.connected = true;
       this.retryMs = 1000;
@@ -86,17 +101,18 @@ class EventHub extends EventEmitter {
 
       let buf = "";
       res.on("data", (chunk) => {
+        if (generation !== this.generation) return;
         this.lastUpstreamData = Date.now();
         buf += chunk;
-        let idx;
-        while ((idx = buf.indexOf("\n\n")) !== -1) {
-          const frame = buf.slice(0, idx);
-          buf = buf.slice(idx + 2);
+        let boundary;
+        while ((boundary = /\r?\n\r?\n/.exec(buf))) {
+          const frame = buf.slice(0, boundary.index);
+          buf = buf.slice(boundary.index + boundary[0].length);
           this._handleFrame(frame);
         }
       });
       const onClose = () => {
-        if (!this.connected) return;
+        if (generation !== this.generation || !this.connected) return;
         this.connected = false;
         this.upstream = null;
         this.emit("close");
@@ -109,14 +125,24 @@ class EventHub extends EventEmitter {
       res.on("close", onClose);
       res.on("error", onClose);
     } catch (err) {
+      if (this.stopped || generation !== this.generation) return;
       this.connected = false;
       this.upstream = null;
       this.emit("connect-error", err);
       this._scheduleReconnect();
+    } finally {
+      if (generation === this.generation) {
+        this.connecting = false;
+        this.connectAbort = null;
+      }
     }
   }
 
   _dropUpstream() {
+    this.generation++;
+    this.connecting = false;
+    if (this.connectAbort) this.connectAbort.abort();
+    this.connectAbort = null;
     this.connected = false;
     if (this.upstream) {
       try {
@@ -163,16 +189,27 @@ class EventHub extends EventEmitter {
     }
 
     if (event === "log") {
-      const numericId = Number(id ?? payload.id);
+      const rawId = id ?? payload.id;
+      const numericId = rawId == null ? NaN : Number(rawId);
       if (Number.isFinite(numericId)) {
-        this.upstreamLastId =
-          this.upstreamLastId == null
-            ? numericId
-            : Math.max(this.upstreamLastId, numericId);
+        if (this.upstreamLastId != null && numericId <= this.upstreamLastId) return;
       }
+      try {
+        payload = this.sanitize(payload);
+      } catch {
+        this.log("warn", "Could not sanitize an upstream event.");
+        return;
+      }
+      if (Number.isFinite(numericId)) this.upstreamLastId = numericId;
       this.emit("entry", payload); // server.js ingests this into SQLite
       this.broadcast("log", payload);
     } else if (event === "status" || event === "hello") {
+      try {
+        payload = this.sanitize(payload);
+      } catch {
+        this.log("warn", "Could not sanitize an upstream event.");
+        return;
+      }
       this.emit("status", payload);
     }
   }
@@ -181,7 +218,7 @@ class EventHub extends EventEmitter {
     const seq = ++this.seq;
     const frame = `id: ${seq}\nevent: ${event}\ndata: ${JSON.stringify(payload)}\n\n`;
 
-    if (event !== "state") {
+    if (event !== "state" && event !== "connections") {
       this.buffer.push({ seq, frame });
       if (this.buffer.length > this.bufferSize) this.buffer.shift();
     }
@@ -193,6 +230,7 @@ class EventHub extends EventEmitter {
       }
       res.write(frame);
     }
+    if (this.forward) this.forward(event, payload);
   }
 
   addClient(req, res, snapshot) {

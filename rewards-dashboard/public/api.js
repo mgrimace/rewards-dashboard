@@ -1,5 +1,17 @@
-async function call(method, path, body) {
+const SERVER_KEY = "rewards_dashboard_server";
+
+export function selectedServer() {
+  return sessionStorage.getItem(SERVER_KEY) || "";
+}
+
+export function selectServer(id) {
+  if (id) sessionStorage.setItem(SERVER_KEY, id);
+  else sessionStorage.removeItem(SERVER_KEY);
+}
+
+async function call(method, path, body, global = false, serverId = selectedServer()) {
   const opts = { method, headers: { Accept: "application/json" } };
+  if (!global && serverId) opts.headers["X-Server-ID"] = serverId;
   if (body !== undefined) {
     opts.headers["Content-Type"] = "application/json";
     opts.body = JSON.stringify(body);
@@ -35,6 +47,27 @@ async function call(method, path, body) {
 }
 
 export const api = {
+  connections: (includeDeleted = false) => call("GET", `/api/connections${includeDeleted ? "?includeDeleted=1" : ""}`, undefined, true),
+  forServer: (id, historical = false) => {
+    const get = (path) => call("GET", `${path}${historical ? `${path.includes("?") ? "&" : "?"}history=1` : ""}`, undefined, false, id);
+    return {
+      summary: () => get("/api/summary"),
+      accounts: (days = 365) => get(`/api/accounts?historyDays=${days}`),
+      activityDays: (days = 14) => get(`/api/activity-days?days=${days}`),
+      runs: (limit = 100, offset = 0) => get(`/api/runs?limit=${limit}&offset=${offset}`),
+      logs: (limit = 500) => get(`/api/logs?limit=${limit}`),
+      control: (action, body = {}) => call("POST", `/api/control/${action}`, body, false, id),
+      deleteDashboardAccount: (email) =>
+        call("DELETE", `/api/dashboard-accounts/${encodeURIComponent(email)}`, undefined, false, id),
+    };
+  },
+  addConnection: (body) => call("POST", "/api/connections", body, true),
+  updateConnection: (id, body) =>
+    call("PATCH", `/api/connections/${encodeURIComponent(id)}`, body, true),
+  removeConnection: (id) =>
+    call("DELETE", `/api/connections/${encodeURIComponent(id)}`, undefined, true),
+  reorderConnections: (ids) => call("PUT", "/api/connections/order", { ids }, true),
+  testConnection: (body) => call("POST", "/api/connections/test", body, true),
   summary: () => call("GET", "/api/summary"),
   // Per-account, per-Rewards-day activity tables (server: lib/activityModel.js).
   activityDays: (days = 14) => call("GET", `/api/activity-days?days=${days}`),
@@ -68,7 +101,7 @@ export const api = {
 
   diagnostics: () => call("GET", "/api/diagnostics"),
   diagnosticFile: (name, file) =>
-    `/api/diagnostics/${encodeURIComponent(name)}/${encodeURIComponent(file)}`,
+    `/api/diagnostics/${encodeURIComponent(name)}/${encodeURIComponent(file)}?serverId=${encodeURIComponent(selectedServer())}`,
 
   sessions: () => call("GET", "/api/sessions"),
   clearSession: (email) =>

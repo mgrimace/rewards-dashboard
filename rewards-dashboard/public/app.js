@@ -8,7 +8,7 @@ import {
   systemPrefersDark,
 } from "./themeManager.js";
 
-import { api, invalidate } from "./api.js";
+import { api, invalidate, selectedServer, selectServer } from "./api.js";
 import * as U from "./util.js";
 
 import overview from "./views/overview.js";
@@ -18,6 +18,7 @@ import runs from "./views/runs.js";
 import schedule from "./views/schedule.js";
 import configView from "./views/config.js";
 import diagnostics from "./views/diagnostics.js";
+import connections from "./views/connections.js";
 
 function initVersion() {
   const version = window.APP_VERSION || "Development";
@@ -35,7 +36,9 @@ const VIEWS = [
   schedule,
   configView,
   diagnostics,
+  connections,
 ];
+const TARGETED_VIEWS = new Set(["schedule", "config", "diagnostics"]);
 
 const els = {
   statusBadge: U.$("#statusBadge"),
@@ -46,6 +49,7 @@ const els = {
   tabBar: U.$("#tabBar"),
   tabPanels: U.$("#tabPanels"),
   ctlPill: U.$("#ctlPill"),
+  serverSelect: U.$("#serverSelect"),
   ctlDetail: U.$("#ctlDetail"),
   btnStart: U.$("#btnStart"),
   btnStop: U.$("#btnStop"),
@@ -64,6 +68,10 @@ const els = {
 
 const state = {
   status: null,
+  statuses: new Map(),
+  serverCodes: new Map(),
+  serverNames: new Map(),
+  servers: [],
   codes: [],
   activeTab: null,
   streamOpen: false,
@@ -81,6 +89,7 @@ const ctx = {
   get status() {
     return state.status;
   },
+  statusFor: (id) => state.statuses.get(id),
   refresh: () => refreshActive(true),
 };
 
@@ -187,9 +196,11 @@ function activate(id) {
   const panel = U.$(`#tab-panel-${view.id}`);
   if (!mounted.has(view.id)) {
     view.mount(panel, ctx);
+    if (TARGETED_VIEWS.has(view.id)) mountTargetContent(panel);
     mounted.add(view.id);
   }
 
+  renderServerTarget();
   refreshActive(true);
 
   clearInterval(refreshTimer);
@@ -204,6 +215,7 @@ function currentView() {
 async function refreshActive(force) {
   const view = currentView();
   if (!view || !view.refresh) return;
+  if (TARGETED_VIEWS.has(view.id) && !selectedServer()) return;
   if (force) invalidate();
   try {
     await view.refresh(ctx);
@@ -221,7 +233,7 @@ function redrawActive() {
 // live
 
 function connectStream() {
-  const es = new EventSource("/api/events");
+  const es = new EventSource(`/api/events?serverId=${encodeURIComponent(selectedServer())}`);
 
   es.addEventListener("open", () => {
     state.streamOpen = true;
@@ -229,7 +241,13 @@ function connectStream() {
 
   es.addEventListener("state", (e) => {
     state.streamOpen = true;
-    applyState(JSON.parse(e.data));
+    const next = JSON.parse(e.data);
+    if (next.serverId) {
+      state.statuses.set(next.serverId, next);
+      setCodes(next.serverId, next.codes || []);
+    }
+    if (!next.serverId || next.serverId === selectedServer()) applyState(next);
+    else currentView()?.onState?.(next, ctx);
   });
 
   es.addEventListener("log", (e) => {
@@ -238,12 +256,26 @@ function connectStream() {
   });
 
   es.addEventListener("codes", (e) => {
-    setCodes(JSON.parse(e.data).codes || []);
+    const payload = JSON.parse(e.data);
+    if (payload.serverId) setCodes(payload.serverId, payload.codes || []);
   });
 
-  es.addEventListener("reset", () => {
-    for (const v of VIEWS) v.onReset?.(ctx);
-    U.toast("Control API restarted — reconnected.", "warn");
+  es.addEventListener("reset", (e) => {
+    const { serverId } = JSON.parse(e.data);
+    for (const v of VIEWS) v.onReset?.(serverId, ctx);
+    if (serverId === selectedServer()) U.toast("Control API restarted — reconnected.", "warn");
+  });
+
+  es.addEventListener("connections", (e) => {
+    const list = JSON.parse(e.data).connections || [];
+    if (selectedServer() && !list.some((item) => item.id === selectedServer() && item.enabled)) {
+      selectServer("");
+      location.reload();
+      return;
+    }
+    renderServerSelect(list);
+    if (state.activeTab === "connections") refreshActive(true);
+    currentView()?.onConnections?.(list, ctx);
   });
 
   es.onerror = () => {
@@ -255,7 +287,6 @@ function connectStream() {
 function applyState(next) {
   state.status = next;
   U.setTimeZone(next.timezone);
-  setCodes(next.codes || []);
   renderStatusBadge();
   renderControlStrip();
   renderFooter();
@@ -273,7 +304,10 @@ function renderStatusBadge() {
     "status-unknown",
   );
 
-  if (!state.streamOpen && !s) {
+  if (!selectedServer() && state.streamOpen) {
+    badge.classList.add("status-unknown");
+    els.statusText.textContent = "Select a server for controls";
+  } else if (!state.streamOpen && !s) {
     badge.classList.add("status-down");
     els.statusText.textContent = "Dashboard server unreachable";
   } else if (!s) {
@@ -378,7 +412,12 @@ function renderControlStrip() {
 }
 
 async function control(action, body, { confirm: confirmMsg, success } = {}) {
-  if (confirmMsg && !window.confirm(confirmMsg)) return;
+  const name = els.serverSelect.selectedOptions[0]?.textContent || "";
+  if (!selectedServer()) {
+    U.toast("Select a server first.", "warn");
+    return;
+  }
+  if (confirmMsg && !window.confirm(`${confirmMsg}\n\nServer: ${name}`)) return;
   try {
     await api.control(action, body || {});
     U.toast(success || `${action} sent.`, "success");
@@ -447,20 +486,22 @@ function closeMenu() {
 
 // login code
 
-const codeKey = (c) => `${c.userName}:${c.number}:${c.issuedAt}`;
+const codeKey = (c) => `${c.serverId}:${c.userName}:${c.number}:${c.issuedAt}`;
 
-function setCodes(codes) {
-  state.codes = codes;
-  const fresh = codes.filter((c) => !knownCodeKeys.has(codeKey(c)));
+function setCodes(serverId, codes) {
+  state.serverCodes.set(serverId, codes);
+  state.codes = [...state.serverCodes].flatMap(([id, list]) =>
+    list.map((code) => ({ ...code, serverId: id, serverName: state.serverNames.get(id) || id })));
+  const fresh = state.codes.filter((c) => !knownCodeKeys.has(codeKey(c)));
   if (fresh.length) {
     els.loginCodesAnnounce.textContent = fresh
       .map(
         (c) =>
-          `Login approval needed for ${c.userName}: select number ${c.number}. Expires in 60 seconds.`,
+          `Login approval needed on ${c.serverName} for ${c.userName}: select number ${c.number}. Expires in 60 seconds.`,
       )
       .join(" ");
   }
-  knownCodeKeys = new Set(codes.map(codeKey));
+  knownCodeKeys = new Set(state.codes.map(codeKey));
   renderCodes();
 }
 
@@ -480,6 +521,7 @@ function renderCodes() {
                     <div class="login-code-number">${U.escapeHtml(c.number)}</div>
                     <div class="login-code-info">
                         <span class="login-code-name">${U.escapeHtml(c.userName)}</span>
+                        <span class="login-code-name">${U.escapeHtml(c.serverName)}</span>
                         <span class="login-code-countdown ${secsLeft <= 15 ? "urgent" : ""}">Expires in ${secsLeft}s</span>
                     </div>
                 </div>`;
@@ -489,11 +531,73 @@ function renderCodes() {
 
 // init
 
-initVersion();
-initTheme();
-initControls();
-initTabs();
-connectStream();
+function renderServerSelect(list) {
+  const enabled = list.filter((item) => item.enabled);
+  state.servers = enabled;
+  state.serverNames = new Map(enabled.map((item) => [item.id, item.name]));
+  for (const id of state.serverCodes.keys()) {
+    if (!state.serverNames.has(id)) state.serverCodes.delete(id);
+  }
+  for (const id of state.statuses.keys()) {
+    if (!state.serverNames.has(id)) state.statuses.delete(id);
+  }
+  state.codes = [...state.serverCodes].flatMap(([id, codes]) =>
+    codes.map((code) => ({ ...code, serverId: id, serverName: state.serverNames.get(id) || id })));
+  renderCodes();
+  renderServerTarget();
+}
+
+function renderServerTarget() {
+  const options = '<option value="">Select a server</option>' +
+    state.servers.map((item) => `<option value="${U.escapeAttr(item.id)}">${U.escapeHtml(item.name)}</option>`).join("");
+  els.serverSelect.innerHTML = options;
+  els.serverSelect.value = selectedServer();
+  els.serverSelect.disabled = state.servers.length === 0;
+  for (const panel of els.tabPanels.querySelectorAll("[data-target-content]")) {
+    panel.hidden = !selectedServer();
+    panel.previousElementSibling.hidden = Boolean(selectedServer());
+  }
+}
+
+function changeTarget(select) {
+  const previous = selectedServer();
+  if (select.value === previous) return;
+  if (currentView()?.canChangeServer?.() === false) {
+    select.value = previous;
+    return;
+  }
+  selectServer(select.value);
+  location.reload();
+}
+
+function mountTargetContent(panel) {
+  const content = document.createElement("div");
+  content.dataset.targetContent = "";
+  while (panel.firstChild) content.appendChild(panel.firstChild);
+  panel.innerHTML = `<p class="empty-note">Select an enabled server in the control bar to use this tab.</p>`;
+  panel.appendChild(content);
+}
+
+async function init() {
+  initVersion();
+  initTheme();
+  try {
+    const list = (await api.connections()).connections || [];
+    const enabled = list.filter((item) => item.enabled);
+    if (!enabled.some((item) => item.id === selectedServer())) selectServer("");
+    if (!selectedServer() && enabled.length === 1) selectServer(enabled[0].id);
+    renderServerSelect(list);
+  } catch (error) {
+    renderServerSelect([]);
+    U.toast(error.message, "error");
+  }
+  els.serverSelect.addEventListener("change", () => changeTarget(els.serverSelect));
+  initControls();
+  initTabs();
+  connectStream();
+}
+
+void init();
 
 setInterval(renderCodes, 1000);
 setInterval(() => {

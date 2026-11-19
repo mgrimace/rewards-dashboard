@@ -24,9 +24,9 @@ A companion dashboard for [microsoft-rewards-script](https://github.com/thenetsk
 > [!CAUTION]
 > These script-side permissions are optional: `API_ALLOW_CONFIG_WRITE=true` allows config changes, `API_ALLOW_CONFIG_REVEAL=true` allows revealing sensitive config values, and `API_ALLOW_SCHEDULE_WRITE=true` allows changing the bot-container schedule. Enable only the capabilities you need; these flags are not required to start the dashboard.
 
-2. Review this repo's `compose.yaml` and set `CONTROL_API_TOKEN` (in a `.env` file next to it) to that same token.
+2. Review this repo's `compose.yaml` and set `API_TOKEN` (in a `.env` file next to it) to that same token for the initial connection.
 3. Build and start the container: `docker compose up -d`.
-4. Visit the dash at `http://<host-ip>:8890`.
+4. Visit the dash at `http://<host-ip>:8890`. Use **Connections** to manage servers.
 
 > [!WARNING]
 > Both services need to share a Docker network so the dashboard can reach the Control API by container name. 
@@ -55,17 +55,26 @@ API_TOKEN=some-long-random-string node scripts/api/server.js
 Then point the dashboard at it - `CONTROL_API_TOKEN` must equal the API's `API_TOKEN`:
 
 ```bash
-cp .env.example .env      # edit CONTROL_API_URL + CONTROL_API_TOKEN
+cd rewards-dashboard
+cp env.example .env       # initial CONTROL_API_URL + CONTROL_API_TOKEN
 npm start                 # http://localhost:8890
 ```
+
+> [!TIP]
+> The initial `.env` connection is imported once as **Default Server**; manage later changes in **Connections**.
+
+> [!WARNING]
+> Back up `dashboard.sqlite` before upgrading; databases with custom schemas may require manual migration.
 
 ## Authentication
 Dashboard login protection is configured separately with `DASHBOARD_USERNAME`
 and `DASHBOARD_PASSWORD`. Basic authentication is enabled only when both values
 are non-empty. Leave either one empty to open the dashboard without a browser
 login prompt. This does not disable authentication between the dashboard and the
-Control API; `CONTROL_API_TOKEN` still needs to match the API's `API_TOKEN`.
+Control API; each saved connection token must match its API's `API_TOKEN`.
 
+> [!CAUTION]
+> Tokens are stored unencrypted in SQLite; protect the data directory, `.env`, Docker host and backups, and enable dashboard authentication when accessible to others.
 
 ## Optional API flags
 
@@ -80,13 +89,24 @@ Two features are gated on the _API_ side, and are off by default:
 
 ## Tabs
 
-**Overview** - stat cards (accounts, combined balance, last run, accounts in error, next scheduled run), a live run panel with a progress bar and per-account rows while the bot is working, and a recent-activity feed.
+**Connections** - add, edit, test, enable, disable, reorder and remove servers.
+
+> [!TIP]
+> Drag a connection's handle to reorder it, or focus the handle and use the arrow keys.
+
+> [!TIP]
+> Select a server in the control strip for run controls, Schedule, Config and Diagnostics; Overview and Accounts combine enabled servers.
+
+**Overview** - stat cards (accounts, combined balance, last run, accounts in error, next scheduled run), run progress and per-account rows.
 
 **Accounts** - every configured account, joined with what the logs actually observed: current balance, daily accumulation bars, today's gain, success/error state, current streak, streak protection status and remaining protection days, and a details drawer (slot, geo, language, TOTP, recovery email, proxy, lifetime collected). Accounts live in the bot's `.env`, so this tab reports on them rather than editing them.
 
-**Logs** - live log viewer over SSE. Level filter, text search, pause (buffers while paused), autoscroll, load-more, download, clear.
+> [!TIP]
+> Browse retained history in Runs and Logs, or enable **Include removed and disabled servers** in Accounts; removal clears the connection's URL and token.
 
-**Runs** - points collected per day (14/30/90-day views) plus a run history table, and a collapsible list of process exits pulled from the API - which catches crashes that never made it to a `RUN-END` line. A run that dies mid-flight is closed out and marked **Crashed** with its exit code, instead of sitting at "running" forever.
+**Logs** - live log viewer over SSE. Server and level filters, text search, pause (buffers while paused), autoscroll, load-more, download, clear. For removed or disabled servers only the dashboard's retained parsed activity is available, not complete upstream logs.
+
+**Runs** - points collected per day (14/30/90-day views) plus a server-filtered run history table, with **Load older runs** and **Show all recorded runs** controls. A collapsible list of process exits is pulled from each enabled API; exits that existed only in an upstream API are unavailable once it is removed.
 
 **Schedule** - the dashboard's own cron. Presets, a live-validated cron field with a plain-English description, account exclusions, missed-run recovery, "skip if already running", next/last run times and the last result. It's stored in the dashboard's database and fires a run by pressing Start on the API for you.
 
@@ -100,13 +120,13 @@ Above the tabs, a control strip is always visible: **Start**, **Stop**, **Restar
 
 ## How it works
 
-**One SSE connection, fanned out.** The server holds a single event stream to the Control API and broadcasts to every open tab (`lib/eventHub.js`), with `Last-Event-ID` resume and reconnect backoff. Ten tabs open still means one connection to the bot.
+**One SSE connection per enabled server, fanned out.** Each Control API has an independent stream, `Last-Event-ID` cursor and reconnect backoff. The dashboard shares one browser stream across servers and associates events with their originating server.
 
 **Two data paths.** Log lines go to the browser live, _and_ through the parser into SQLite (`lib/store.js`). The API keeps a 2,000-line in-memory buffer that dies with the process; the dashboard's point history, run records, activity and schedule survive restarts of both.
 
 **Live points.** The bot prints its balance and every gain as it earns them, and the API folds those lines into a running tally (`GET /points`). So the Overview shows points climbing _during_ a run, not just the final total. When an account finishes, the live tally is replaced by the authoritative `ACCOUNT-END` numbers.
 
-**Separate authentication layers.** `CONTROL_API_TOKEN` is sent only from the dashboard to the Control API as a Bearer token and must match the API's `API_TOKEN`. Browser access uses the optional `DASHBOARD_USERNAME` and `DASHBOARD_PASSWORD` pair instead.
+**Separate authentication layers.** Each connection token is sent only from the dashboard to its Control API as a Bearer token. Browser access uses the optional `DASHBOARD_USERNAME` and `DASHBOARD_PASSWORD` pair instead.
 
 **No dependencies.** Charts are hand-rolled inline SVG (`public/charts.js`) that read their colors from CSS variables, so they follow the theme and work offline. The 14 themes from the original dashboard are untouched.
 
@@ -116,8 +136,8 @@ Above the tabs, a control strip is always visible: **Start**, **Stop**, **Restar
 
 | Variable              | Default                                |                                                                                           |
 | --------------------- | -------------------------------------- | ----------------------------------------------------------------------------------------- |
-| `CONTROL_API_URL`     | `http://microsoft-rewards-script:3010` | Where the Control API listens                                                             |
-| `CONTROL_API_TOKEN`   | -                                      | Bearer token sent to the Control API; must match the API's `API_TOKEN`                    |
+| `CONTROL_API_URL`     | -                                      | Initial connection URL; legacy database fallback is `http://microsoft-rewards-script:3010` |
+| `CONTROL_API_TOKEN`   | -                                      | Initial connection token; ignored after migration                                         |
 | `DASHBOARD_USERNAME`  | -                                      | Optional Basic-auth username; auth is enabled only when username and password are set     |
 | `DASHBOARD_PASSWORD`  | -                                      | Optional Basic-auth password; leave either dashboard credential empty to disable login    |
 | `PORT`                | `8890`                                 |                                                                                           |
@@ -131,9 +151,9 @@ Above the tabs, a control strip is always visible: **Start**, **Stop**, **Restar
 
 ## Troubleshooting
 
-**"Control API unreachable"** - the dashboard can't open a TCP connection. Check `CONTROL_API_URL`. In Docker, `localhost` means the dashboard's own container: use the API's service name, or `host.docker.internal` with `extra_hosts`.
+**"Control API unreachable"** - the dashboard can't open a TCP connection. Check the URL in Connections. In Docker, `localhost` means the dashboard's own container: use the API's service name, or `host.docker.internal` with `extra_hosts`.
 
-**"Control API rejected our token"** - `CONTROL_API_TOKEN` ≠ `API_TOKEN`.
+**"Control API rejected our token"** - replace the connection token with the Control API's `API_TOKEN`.
 
 **Browser login prompt does not appear** - both `DASHBOARD_USERNAME` and `DASHBOARD_PASSWORD` must be non-empty. Authentication is intentionally disabled when either value is empty.
 

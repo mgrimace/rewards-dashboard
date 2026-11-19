@@ -7,6 +7,9 @@ let rootEl = null;
 let loaded = null; // the config exactly as the API returned it
 let drift = null; // { addedKeys, upToDate } from GET /api/config/diff, or null if unknown
 let scriptVersion = null;
+let editorBaseline = "";
+let pendingWrites = 0;
+let configLoadSequence = 0;
 
 const isPlainObject = (v) =>
   v !== null && typeof v === "object" && !Array.isArray(v);
@@ -641,7 +644,11 @@ function localMerge(base, patch) {
 function afterSave(patch) {
   loaded = localMerge(loaded, patch);
   renderSettings();
-  U.$("#cfgEditor", rootEl).value = JSON.stringify(loaded, null, 2);
+  editorBaseline = U.$("#cfgEditor", rootEl).value = JSON.stringify(loaded, null, 2);
+}
+
+function hasRawEdits() {
+  return Boolean(loaded && U.$("#cfgEditor", rootEl)?.value !== editorBaseline);
 }
 
 function showNotice(id, message, kind = "warn") {
@@ -1025,6 +1032,8 @@ function explainConfigError(e) {
 }
 
 async function save(patch, description) {
+  configLoadSequence++;
+  pendingWrites++;
   try {
     const res = await api.patchConfig(patch);
     showNotice("cfgNotice", "");
@@ -1035,6 +1044,8 @@ async function save(patch, description) {
     showNotice("cfgNotice", message, kind);
     U.toast(e.message, "error");
     throw e;
+  } finally {
+    pendingWrites--;
   }
 }
 
@@ -1072,6 +1083,8 @@ async function doSync() {
   const btn = U.$("#cfgSyncBtn", rootEl);
   btn.disabled = true;
   btn.textContent = "Syncing\u2026";
+  configLoadSequence++;
+  pendingWrites++;
   try {
     const result = await api.syncConfig();
     showNotice("cfgNotice", "");
@@ -1087,13 +1100,17 @@ async function doSync() {
     showNotice("cfgNotice", message, kind);
     btn.disabled = false;
     btn.textContent = "Sync now";
+  } finally {
+    pendingWrites--;
   }
 }
 
 // Shared by initial load, "Reload from API", the reveal-secrets toggle, and
 // post-sync reload - one place that fetches config.json + drift status together.
-async function loadConfig(reveal) {
+async function loadConfig(reveal, { preserveEdits = false } = {}) {
+  const sequence = ++configLoadSequence;
   const res = await api.config(reveal);
+  if (sequence !== configLoadSequence || (preserveEdits && (hasRawEdits() || pendingWrites))) return null;
   loaded = res.config;
   paint();
   checkDrift(); // not awaited - drift banner fills in once it resolves, doesn't block the rest of the page
@@ -1101,7 +1118,10 @@ async function loadConfig(reveal) {
 }
 
 function paint() {
-  U.$("#cfgEditor", rootEl).value = JSON.stringify(loaded, null, 2);
+  editorBaseline = U.$("#cfgEditor", rootEl).value = JSON.stringify(loaded, null, 2);
+  U.$("#cfgEditor", rootEl).disabled = false;
+  U.$("#cfgSave", rootEl).disabled = false;
+  U.$("#cfgReveal", rootEl).disabled = false;
   renderSettings();
   showNotice("cfgNotice", "");
 }
@@ -1124,7 +1144,7 @@ export default {
                     <p class="cfg-reveal-help">Enable viewing of sensitive secrets. Requires <code>API_ALLOW_CONFIG_REVEAL=true</code> on the control API.</p>
           </div>
           <label class="cfg-reveal-toggle" title="Fetch webhook URLs and tokens from the control API">
-            <input type="checkbox" id="cfgReveal" role="switch" aria-label="Reveal secrets">
+            <input type="checkbox" id="cfgReveal" role="switch" aria-label="Reveal secrets" disabled>
             <span class="cfg-reveal-track" aria-hidden="true"></span>
             <span class="visually-hidden">Reveal secrets</span>
           </label>
@@ -1144,20 +1164,20 @@ export default {
                     <span class="panel-sub">Only the fields you actually change are sent</span>
                 </div>
 
-                <textarea id="cfgEditor" class="editor" spellcheck="false" autocomplete="off" aria-label="config.json"></textarea>
+                <textarea id="cfgEditor" class="editor" spellcheck="false" autocomplete="off" aria-label="config.json" disabled></textarea>
 
                 <div class="form-actions">
-                    <button type="button" id="cfgSave" class="btn btn-primary">Save changes</button>
+                    <button type="button" id="cfgSave" class="btn btn-primary" disabled>Save changes</button>
                     <button type="button" id="cfgReload" class="btn" title="Discard unsaved edits and re-fetch config.json from the bot.">Reload from API</button>
                 </div>
             </section>`;
 
-    U.$("#cfgReload", root).addEventListener("click", () => this.refresh(ctx));
+    U.$("#cfgReload", root).addEventListener("click", () => this.refresh(ctx, { force: true }));
 
     U.$("#cfgReveal", root).addEventListener("change", async (e) => {
       try {
         const res = await loadConfig(e.target.checked);
-        if (e.target.checked && res.redacted) {
+        if (e.target.checked && res?.redacted) {
           showNotice(
             "cfgNotice",
             "The control API refused to reveal secrets. Set <code>API_ALLOW_CONFIG_REVEAL=true</code> (and an <code>API_TOKEN</code>) on it to enable this.",
@@ -1204,23 +1224,34 @@ export default {
           `${Object.keys(patch).length} field${Object.keys(patch).length === 1 ? "" : "s"}`,
         );
         loaded = edited;
+        editorBaseline = U.$("#cfgEditor", root).value;
         renderSettings();
       } catch {
       }
     });
   },
 
-  async refresh(ctx) {
+  async refresh(ctx, { force = false } = {}) {
+    if (!force && (hasRawEdits() || pendingWrites)) return;
     scriptVersion = ctx?.status?.version || scriptVersion;
     try {
       const reveal = U.$("#cfgReveal", rootEl)?.checked || false;
-      await loadConfig(reveal);
+      await loadConfig(reveal, { preserveEdits: !force });
     } catch (e) {
       showNotice("cfgNotice", U.escapeHtml(e.message), "error");
     }
   },
 
-  onState(status) {
+  canChangeServer() {
+    if (pendingWrites) {
+      U.toast("Wait for the configuration change to finish saving.", "warn");
+      return false;
+    }
+    return !hasRawEdits() || window.confirm("Discard unsaved configuration changes and switch server?");
+  },
+
+  onState(status, ctx) {
+    if (status?.serverId && status.serverId !== ctx?.status?.serverId) return;
     const nextVersion = status?.version || null;
     if (nextVersion === scriptVersion) return;
     scriptVersion = nextVersion;

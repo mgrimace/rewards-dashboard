@@ -1,5 +1,5 @@
 import * as U from "../util.js";
-import { cached } from "../api.js";
+import { accountTotals, combineAccounts, loadServers } from "../serverViews.js";
 // Import BOTH chart builders
 import { buildAccumBarHtml, buildHeatmapHtml, lineChart } from "../charts.js";
 
@@ -8,6 +8,8 @@ let accountsPayload = null;
 let rootEl = null;
 let mounted = false;
 let context = null;
+let groups = [];
+let refreshSequence = 0;
 
 let selected = null;
 
@@ -95,8 +97,12 @@ function pendingDelayLabel(pendingDelay) {
   return `next account in ~${remaining}s${who}`;
 }
 
-function controlState() {
-  const status = context?.status;
+function statusFor(serverId) {
+  return context?.statusFor(serverId) || groups.find((g) => g.server.id === serverId)?.summary?.status;
+}
+
+function controlState(serverId) {
+  const status = statusFor(serverId);
   const usable = Boolean(status?.reachable && status?.authOk !== false);
   const running = Boolean(status?.botRunning);
   return { usable, running };
@@ -105,10 +111,10 @@ function controlState() {
 async function runAccount(account) {
   if (!context || !account.configured || !Number.isInteger(account.index)) return;
 
-  launching.add(account.index);
+  launching.add(account.key);
   renderAccountRows(rootEl);
   try {
-    await context.api.control("start", { accountIndex: account.index });
+    await context.api.forServer(account.serverId).control("start", { accountIndex: account.index });
     context.toast(
       `Started ACCOUNT_${account.index} only (${account.email}).`,
       "success",
@@ -118,37 +124,46 @@ async function runAccount(account) {
   } catch (error) {
     context.toast(error.message, error.status === 409 ? "warn" : "error");
   } finally {
-    launching.delete(account.index);
+    launching.delete(account.key);
     renderAccountRows(rootEl);
   }
 }
 
-function renderStats(root, status) {
-  const accounts = data?.accounts || [];
-  const runs = data?.runs || [];
+function renderStats(root) {
+  const accounts = accountsPayload?.accounts || [];
+  const runs = groups.flatMap((group) => (group.summary?.runs || []).map((run) => ({ ...run, serverName: group.server.name })))
+    .sort((a, b) => (Date.parse(b.endTs || b.startTs) || 0) - (Date.parse(a.endTs || a.startTs) || 0));
   const lastRun = runs.find((r) => r.status === "done") || runs[0] || null;
-  const liveByEmail = U.runAccountMap(status);
-  const accountStatus = (account) =>
+  const accountStatus = (account) => {
+    const status = statusFor(account.serverId);
+    const liveByEmail = U.runAccountMap(status);
+    return (
     U.accountDisplayStatus(
       account,
       liveByEmail.get(account.email.trim().toLowerCase()),
       Boolean(status?.botRunning),
-    );
+    ));
+  };
 
   const errorCount = accounts.filter((a) => accountStatus(a) === "error").length;
-  const anyRunning = accounts.some((a) => accountStatus(a) === "running");
-  const combined = accounts.reduce((sum, a) => sum + (a.lastPoints || 0), 0);
-  const sched = activeSchedule(status);
+  const anyRunning = groups.some((group) => statusFor(group.server.id)?.botRunning);
+  const totals = accountTotals(accounts);
+  const schedules = groups.map((group) => activeSchedule(statusFor(group.server.id)));
+  const sched = groups.length === 1 ? schedules[0] : {
+    description: `${schedules.filter((s) => s.enabled).length} servers scheduled`,
+    timezone: context?.status?.timezone || "UTC",
+    enabled: schedules.some((s) => s.enabled),
+  };
 
   U.$("#statGrid", root).innerHTML = [
-    statCard("statAccounts", U.fmtNumber(accounts.length), "profiles", "Accounts tracked"),
-    statCard("statCombined", U.fmtNumber(combined), "points", "Combined balance"),
-    statCard("statLastGained", lastRun ? U.fmtSigned(lastRun.totalGained) : "\u2013", "points", "Points earned last run"),
+    statCard("statAccounts", U.fmtNumber(totals.count), "profiles", "Accounts tracked"),
+    statCard("statCombined", U.fmtNumber(totals.balance), "points", "Combined balance"),
+    statCard("statLastGained", lastRun ? U.fmtSigned(lastRun.totalGained) : "\u2013", "points", lastRun ? `Last run · ${lastRun.serverName}` : "Points earned last run"),
     statCard(
       "statLastRun",
       anyRunning ? "Running now" : lastRun ? U.fmtRelative(lastRun.endTs || lastRun.startTs) : "\u2013",
       anyRunning ? "" : "timestamp",
-      "Last run",
+      lastRun && !anyRunning ? `Last run · ${lastRun.serverName}` : "Last run",
       anyRunning ? "stat-icon-running" : "stat-icon-check",
       anyRunning ? "\u25CF" : "\u2713",
     ),
@@ -175,7 +190,6 @@ function renderAccountRows(root) {
   const container = U.$("#overviewHeroRows", root);
   const accounts = accountsPayload?.accounts || [];
   const histories = accountsPayload?.histories || {};
-  const { usable, running } = controlState();
 
   const errEl = U.$("#ovwAccountsError", root);
   if (errEl) {
@@ -183,7 +197,7 @@ function renderAccountRows(root) {
     if (accountsPayload?.apiError) errEl.textContent = accountsPayload.apiError;
   }
 
-  if (!accounts.length) {
+  if (!groups.length) {
     container.innerHTML = '<p class="empty-note" style="padding:1.25rem">No accounts configured or observed yet.</p>';
     return;
   }
@@ -207,20 +221,20 @@ function renderAccountRows(root) {
   // reads that identity straight off pendingDelay rather than inferring it
   // from run.accounts (which only ever contains accounts that have already
   // started).
-  const pendingDelay = context?.status?.pendingDelay;
-  const nextAccountEmail = pendingDelay?.nextEmail || null;
-  const sleepSec = U.sleepRemainingSec(context?.status);
-  const liveByEmail = U.runAccountMap(context?.status);
-
   // hide email for screenshots by toggling mask = true
   const MASK_EMAILS = false;
 
-  container.innerHTML = accounts
-    .map((a) => {
+  const rowsByServer = new Map(groups.map((group) => [group.server.id, []]));
+  accounts.forEach((a) => {
+      const status = statusFor(a.serverId);
+      const { usable, running } = controlState(a.serverId);
+      const nextAccountEmail = status?.pendingDelay?.nextEmail || null;
+      const sleepSec = U.sleepRemainingSec(status);
+      const liveByEmail = U.runAccountMap(status);
       const displayStatus = U.accountDisplayStatus(
         a,
         liveByEmail.get(a.email.trim().toLowerCase()),
-        Boolean(context?.status?.botRunning),
+        Boolean(status?.botRunning),
       );
       const days = daysByKey[a.key] || null;
       let barCell = '<p class="empty-note" style="font-size:0.78rem;margin:0">No history yet</p>';
@@ -280,7 +294,7 @@ function renderAccountRows(root) {
               dur ? ` \u00b7 <span title="Last run duration">⏱ ${U.escapeHtml(dur)}</span>` : ""
             }${gainHtml}`;
 
-      return `<div class="hero-row">
+      rowsByServer.get(a.serverId).push(`<div class="hero-row">
             <div class="hero-bar-cell">${barCell}</div>
             <div class="hero-acc-card">
                 <div class="hero-acc-pts">
@@ -310,15 +324,23 @@ function renderAccountRows(root) {
                 </div>
                 <div class="hero-acc-actions">
                     ${a.configured && Number.isInteger(a.index)
-                      ? `<button type="button" class="link-btn" data-run-account="${a.index}" ${!usable || running || launching.has(a.index) ? "disabled" : ""} title="Run only ACCOUNT_${a.index}">${launching.has(a.index) ? "Starting…" : "Run only"}</button>`
+                      ? `<button type="button" class="link-btn" data-run-account="${U.escapeAttr(a.key)}" ${!usable || running || launching.has(a.key) ? "disabled" : ""} title="Run only ACCOUNT_${a.index}">${launching.has(a.key) ? "Starting…" : "Run only"}</button>`
                       : ""
                     }
                     <button type="button" class="link-btn" data-trend="${U.escapeAttr(a.key)}" aria-pressed="${selected === a.key}">Trend</button>
                 </div>
             </div>
-        </div>`;
-    })
-    .join("");
+        </div>`);
+    });
+
+  container.innerHTML = groups.map((group) => {
+    const current = statusFor(group.server.id);
+    const run = current?.bot?.run;
+    const label = current?.botRunning ? "Running" : current?.reachable ? (current.botOutcome || "Idle") : "Unavailable";
+    const progress = run?.accountsTotal ? ` · ${run.accountsSeen || 0}/${run.accountsTotal} accounts` : "";
+    const rows = rowsByServer.get(group.server.id);
+    return `<h3 class="server-group-heading">${U.escapeHtml(group.server.name)} <span class="server-group-status">· ${U.escapeHtml(label + progress)}</span></h3>${rows.length ? rows.join("") : '<p class="empty-note" style="padding:1.25rem">No accounts configured or observed yet.</p>'}`;
+  }).join("");
 
   // The timeline view is a rolling recent-history strip, so scrolling it to
   // its end shows the most recent days by default - that's still correct.
@@ -332,8 +354,7 @@ function renderAccountRows(root) {
 
   container.querySelectorAll("button[data-run-account]").forEach((btn) =>
     btn.addEventListener("click", () => {
-      const index = Number(btn.dataset.runAccount);
-      const account = accounts.find((a) => a.index === index);
+      const account = accounts.find((a) => a.key === btn.dataset.runAccount);
       if (account) runAccount(account);
     }),
   );
@@ -360,7 +381,8 @@ function renderTrend() {
   if (!selected) return;
 
   const history = (accountsPayload?.histories || {})[selected] || [];
-  U.$("#ovwTrendName", rootEl).textContent = selected;
+  const account = accountsPayload?.accounts?.find((item) => item.key === selected);
+  U.$("#ovwTrendName", rootEl).textContent = account ? `${account.serverName} · ${account.email}` : selected;
 
   lineChart(
     U.$("#ovwTrendChart", rootEl),
@@ -386,7 +408,7 @@ function renderRunHeader(root, status) {
 
   if (!bar) return;
 
-  progressBox.hidden = false;
+  progressBox.hidden = groups.length !== 1;
 
   const sleepSec = U.sleepRemainingSec(status);
   progressBox.classList.toggle("sleeping", sleepSec != null);
@@ -477,7 +499,6 @@ export default {
                     <div class="progress-bar" id="currentRunBar"></div>
                 </div>
             </section>
-
             <section class="panel hero-panel" id="currentRun" aria-labelledby="current-run-heading">
                 <div class="hero-panel-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem;">
                     <div>
@@ -517,17 +538,23 @@ export default {
   
   async refresh(ctx) {
     context = ctx;
-    [data, accountsPayload] = await Promise.all([
-      cached("summary", ctx.api.summary, 3000),
-      cached("accounts", ctx.api.accounts, 5000),
-    ]);
+    const sequence = ++refreshSequence;
+    const nextGroups = await loadServers(ctx.api, ["summary", "accounts"]);
+    if (sequence !== refreshSequence) return;
+    groups = nextGroups;
+    const { accounts, histories } = combineAccounts(groups);
+    accountsPayload = {
+      accounts, histories,
+      apiError: groups.flatMap((group) => [...group.errors, group.accounts?.apiError].filter(Boolean).map((error) => `${group.server.name}: ${error}`)).join(" · "),
+    };
+    data = { accounts };
     this.redraw(ctx);
   },
 
   redraw(ctx) {
     context = ctx || context;
     if (!mounted || !data) return;
-    renderStats(rootEl, context.status);
+    renderStats(rootEl);
     renderRunHeader(rootEl, context.status);
     renderAccountRows(rootEl);
   },
@@ -541,8 +568,8 @@ export default {
   onState(status, ctx) {
     context = ctx || context;
     if (!mounted || !data) return;
-    renderRunHeader(rootEl, status);
-    renderStats(rootEl, status);
+    renderRunHeader(rootEl, context.status);
+    renderStats(rootEl);
     renderAccountRows(rootEl);
   },
 };

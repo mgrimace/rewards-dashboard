@@ -8,7 +8,7 @@ services:
     ports:
       - "8890:8890"
     environment:
-      # URL of the bot's Control API (scripts/api/server.js).
+      # Initial Control API URL (imported once; later edit via Connections).
       #  - If the Control API runs as a container on a shared Docker
       #    network, use its service/container name, e.g.
       #    http://microsoft-rewards-script:3010
@@ -16,7 +16,7 @@ services:
       #    http://host.docker.internal:3010 and uncomment extra_hosts below.
       CONTROL_API_URL: "http://microsoft-rewards-script:3010"
 
-      # Shared secret — must match the Control API's API_TOKEN. Sourced
+      # Initial shared secret — must match the Control API's API_TOKEN. Sourced
       # from your shell / a .env file beside this compose.yaml. Leave it
       # unset only if the API runs without a token.
       CONTROL_API_TOKEN: "${API_TOKEN}"
@@ -30,8 +30,10 @@ services:
       # POLL_MS: '5000'      # status poll; logs are streamed
       # LOG_REPLAY: '300'    # log lines replayed when the stream connects
 
-    # The dashboard stores point history, runs, activity and its own
-    # schedule, all in ./data/dashboard.sqlite. The bot's Control API is
+    # The dashboard stores connection tokens (unencrypted), point history, runs, activity and its own
+    # schedule, all in ./data/dashboard.sqlite. Keep ./data and backups
+    # private and writable by the container; database files are set to 0600.
+    # The bot's Control API is
     # otherwise stateless; the one exception is config/schedule.json on the
     # bot side, written only if you enable API_ALLOW_SCHEDULE_WRITE there and
     # use the "Bot container" scheduler from this dashboard's Schedule tab.

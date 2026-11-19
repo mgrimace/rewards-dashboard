@@ -60,6 +60,7 @@ services:
     ports:
       - "8890:8890"
     environment:
+      # Imported once; subsequent connection changes are made in the UI.
       CONTROL_API_URL: "http://microsoft-rewards-script:3010"
       CONTROL_API_TOKEN: "${API_TOKEN}"
       TZ: "America/Toronto"
@@ -67,6 +68,7 @@ services:
       # DASHBOARD_TITLE: 'Microsoft Rewards'
       # POLL_MS: '5000'      # status poll; logs are streamed
       # LOG_REPLAY: '300'    # log lines replayed when the stream connects
+    # Keep the host directory and backups private: SQLite stores tokens unencrypted.
     volumes:
       - ./data:/data
     security_opt:
