@@ -315,6 +315,17 @@ export function renderTicker(
   // running uninterrupted even though the text may have just been updated.
 }
 
+// two-step confirm
+
+// A confirm button renders where the button that armed it just was, so the
+// second click of a double-click would land on it. Ignore confirm clicks for a
+// moment after arming; a deliberate second click comes well after this.
+const CONFIRM_GUARD_MS = 600;
+
+export function confirmReady(armedAt) {
+  return armedAt == null || performance.now() - armedAt >= CONFIRM_GUARD_MS;
+}
+
 // other
 
 export function debounce(fn, ms = 250) {

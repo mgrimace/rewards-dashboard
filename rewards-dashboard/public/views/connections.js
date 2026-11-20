@@ -6,7 +6,54 @@ let connections = [];
 let editing = null;
 let busy = false;
 let dragging = null;
+let armedRemove = null; // two-step remove, same pattern as the accounts page
+let armedAt = null;
 let refreshSequence = 0;
+
+function formTemplate(edited) {
+  const nameHidden = Boolean(edited?.nameRedacted);
+  const urlHidden = Boolean(edited?.apiUrlRedacted);
+  const hasToken = Boolean(edited?.hasToken);
+  return `
+    <form id="connection-form" class="connection-form form" aria-labelledby="connection-form-heading">
+      <h3 id="connection-form-heading" class="connection-form-title">${edited ? `Edit ${U.escapeHtml(edited.name)}` : "Add server"}</h3>
+      <div class="field-grid">
+        <label class="field field-item">
+          <span>Name</span>
+          <input class="input" name="name" ${nameHidden ? "" : "required"} maxlength="120" autocomplete="off"
+            placeholder="${nameHidden ? "Hidden; leave blank to keep" : "alpha"}"
+            value="${U.escapeAttr(nameHidden ? "" : edited?.name || "")}">
+        </label>
+        <label class="field field-item">
+          <span>Control API URL</span>
+          <input class="input" name="apiUrl" type="url" inputmode="url" ${urlHidden ? "" : "required"} maxlength="2048"
+            autocomplete="off" autocapitalize="off" spellcheck="false"
+            placeholder="${urlHidden ? "Hidden; leave blank to keep" : "http://server:3010"}"
+            value="${U.escapeAttr(urlHidden ? "" : edited?.apiUrl || "")}">
+        </label>
+        <div class="field field-item field-wide">
+          <label for="connection-token">Control API token <span class="field-hint">(optional)</span></label>
+          <div class="input-group">
+            <input class="input input--mono" id="connection-token" name="apiToken" type="password" maxlength="4096"
+              autocomplete="new-password" autocapitalize="off" spellcheck="false" aria-describedby="connection-token-hint"
+              placeholder="${hasToken ? "Stored token (leave blank to keep)" : "Paste token"}">
+            <button type="button" class="btn" data-action="toggle-token" aria-controls="connection-token" aria-pressed="false">Show</button>
+          </div>
+          <span id="connection-token-hint" class="field-hint">${hasToken
+            ? "A token is stored. If you change the URL, enter the token again or clear it."
+            : "Stored on the dashboard and never displayed again."}</span>
+        </div>
+      </div>
+      ${nameHidden || urlHidden ? '<p class="hint">Fields containing the stored token are hidden. Leave them blank to keep their existing values.</p>' : ""}
+      ${hasToken ? '<label class="check check--row"><input type="checkbox" name="clearToken"><span>Clear the stored token</span></label>' : ""}
+      <div id="connection-message" class="notice" role="status" hidden></div>
+      <div class="form-actions">
+        <button type="submit" class="btn btn-primary">${edited ? "Save changes" : "Add server"}</button>
+        <button type="button" class="btn" data-action="test-form">Test connection</button>
+        <button type="button" class="btn" data-action="cancel">Cancel</button>
+      </div>
+    </form>`;
+}
 
 function render() {
   const edited = connections.find((connection) => connection.id === editing);
@@ -15,29 +62,13 @@ function render() {
     <section class="panel" aria-labelledby="connections-heading">
       <div class="panel-head">
         <h2 id="connections-heading">Connections</h2>
-        <button type="button" class="btn btn-primary" data-action="add">Add server</button>
+        <button type="button" class="btn btn-primary" data-action="add" ${formOpen ? "disabled" : ""}>Add server</button>
       </div>
-      <p class="hint">Each server has its own accounts, history, schedule and controls.</p>
-      ${connections.length > 1 ? '<p class="hint" id="connection-reorder-help">Drag the handle to reorder servers, or focus it and use the arrow keys.</p>' : ""}
-      <div id="connection-message" class="notice" role="status" hidden></div>
-      ${formOpen ? `
-        <form id="connection-form" class="panel">
-          <h3>${edited ? "Edit connection" : "Add connection"}</h3>
-          <label class="field"><span>Name</span>
-            <input class="input" name="name" ${edited?.nameRedacted ? "" : "required"} maxlength="120" value="${U.escapeAttr(edited?.nameRedacted ? "" : edited?.name || "")}" ${edited?.nameRedacted ? 'placeholder="Hidden; leave blank to keep"' : ""}></label>
-          <label class="field"><span>Control API URL</span>
-            <input class="input" name="apiUrl" type="url" ${edited?.apiUrlRedacted ? "" : "required"} maxlength="2048" placeholder="${edited?.apiUrlRedacted ? "Hidden; leave blank to keep" : "http://server:3010"}" value="${U.escapeAttr(edited?.apiUrlRedacted ? "" : edited?.apiUrl || "")}"></label>
-          ${edited?.nameRedacted || edited?.apiUrlRedacted ? '<p class="hint">Fields containing the stored token are hidden. Leave them blank to keep their existing values.</p>' : ""}
-          <label class="field"><span>Control API token</span>
-            <input class="input" name="apiToken" type="password" maxlength="4096" autocomplete="new-password" placeholder="${edited?.hasToken ? "Stored token (leave blank to keep)" : "Optional token"}"></label>
-          ${edited?.hasToken ? '<p class="hint">If you change the URL, enter the token again or clear it.</p>' : ""}
-          ${edited?.hasToken ? `<label class="check"><input type="checkbox" name="clearToken"><span>Clear the stored token</span></label>` : ""}
-          <div class="toolbar">
-            <button type="submit" class="btn btn-primary">Save</button>
-            <button type="button" class="btn" data-action="test-form">Test connection</button>
-            <button type="button" class="btn" data-action="cancel">Cancel</button>
-          </div>
-        </form>` : ""}
+      <div class="connections-intro">
+        <p class="hint">Each server has its own accounts, history, schedule and controls.</p>
+        ${connections.length > 1 ? '<p class="hint" id="connection-reorder-help">Drag the handle to reorder servers, or focus it and use the arrow keys.</p>' : ""}
+      </div>
+      ${formOpen ? formTemplate(edited) : '<div id="connection-message" class="notice" role="status" hidden></div>'}
       <div class="connection-list">
         ${connections.length ? connections.map((connection) => `
           <article class="connection-row" data-connection-id="${U.escapeAttr(connection.id)}">
@@ -57,7 +88,12 @@ function render() {
               <button type="button" class="btn btn-small" data-action="edit" data-id="${U.escapeAttr(connection.id)}">Edit</button>
               <button type="button" class="btn btn-small" data-action="test" data-id="${U.escapeAttr(connection.id)}">Test</button>
               <button type="button" class="btn btn-small" data-action="toggle" data-id="${U.escapeAttr(connection.id)}">${connection.enabled ? "Disable" : "Enable"}</button>
-              <button type="button" class="btn btn-small btn-danger" data-action="remove" data-id="${U.escapeAttr(connection.id)}">Remove</button>
+              ${armedRemove === connection.id
+                ? `<span class="acc-delete-confirm">
+                    <button type="button" class="btn btn-icon btn-small" data-action="cancel-remove" data-id="${U.escapeAttr(connection.id)}" aria-label="Cancel remove" title="Cancel remove"><i class="ph ph-x" aria-hidden="true"></i></button>
+                    <button type="button" class="btn btn-danger btn-icon btn-small" data-action="remove" data-id="${U.escapeAttr(connection.id)}" aria-label="Confirm remove ${U.escapeAttr(connection.name)}" title="Remove this server. Its historical data will be retained."><i class="ph ph-trash" aria-hidden="true"></i></button>
+                  </span>`
+                : `<button type="button" class="btn btn-danger btn-small btn-collapse" data-action="arm-remove" data-id="${U.escapeAttr(connection.id)}" aria-label="Remove ${U.escapeAttr(connection.name)}" title="${formOpen ? "Finish editing before removing a server" : "Remove this server"}" ${formOpen ? "disabled" : ""}><i class="ph ph-trash btn-collapse-icon" aria-hidden="true"></i><span class="btn-collapse-label">Remove</span></button>`}
             </div>
           </article>`).join("") : '<p class="empty-note">No servers configured. Add a connection to get started.</p>'}
       </div>
@@ -160,6 +196,11 @@ export default {
       if (dragging?.pointerId === event.pointerId) clearDrag();
     });
     root.addEventListener("keydown", (event) => {
+      if (event.key === "Escape" && editing !== null && !busy && event.target.closest("#connection-form")) {
+        event.preventDefault();
+        U.$('#connection-form [data-action="cancel"]', rootEl).click();
+        return;
+      }
       const handle = event.target.closest("button[data-grab]");
       if (!handle || handle.disabled || busy || dragging || editing !== null || !["ArrowUp", "ArrowDown"].includes(event.key)) return;
       event.preventDefault();
@@ -185,10 +226,34 @@ export default {
       const button = event.target.closest("button[data-action]");
       if (!button || busy || dragging) return;
       const { action, id } = button.dataset;
+      if (editing !== null && ["arm-remove", "cancel-remove", "remove"].includes(action)) return;
+      if (action === "remove" && !U.confirmReady(armedAt)) return;
       const connection = connections.find((item) => item.id === id);
+      if (action === "toggle-token") {
+        const input = U.$("#connection-token", rootEl);
+        const show = input.type === "password";
+        input.type = show ? "text" : "password";
+        button.textContent = show ? "Hide" : "Show";
+        button.setAttribute("aria-pressed", String(show));
+        return;
+      }
+      if (action === "arm-remove" || action === "cancel-remove") {
+        armedRemove = action === "arm-remove" ? id : null;
+        armedAt = armedRemove ? performance.now() : null;
+        render();
+        const next = action === "arm-remove" ? "cancel-remove" : "arm-remove";
+        [...rootEl.querySelectorAll(`[data-action="${next}"]`)].find((b) => b.dataset.id === id)?.focus();
+        return;
+      }
       if (action === "add" || action === "edit" || action === "cancel") {
+        armedRemove = null;
+        armedAt = null;
+        const previous = editing;
         editing = action === "add" ? "new" : action === "edit" ? id : null;
         render();
+        if (editing !== null) U.$("#connection-form input:not([type=hidden])", rootEl)?.focus();
+        else if (previous === "new") U.$('[data-action="add"]', rootEl)?.focus();
+        else [...rootEl.querySelectorAll('[data-action="edit"]')].find((b) => b.dataset.id === previous)?.focus();
         return;
       }
       void run(async () => {
@@ -205,7 +270,8 @@ export default {
           await context.api.updateConnection(id, { enabled: !connection.enabled });
           location.reload();
         } else if (action === "remove" && connection) {
-          if (!window.confirm(`Remove ${connection.name}? Its historical data will be retained.`)) return;
+          armedRemove = null;
+          armedAt = null;
           await context.api.removeConnection(id);
           location.reload();
         }

@@ -862,6 +862,10 @@ main {
   padding: 0 var(--space-10);
   font-size: var(--font-xs);
 }
+/* Label on desktop, icon on mobile (see "Collapsing buttons" below) */
+.btn-collapse-icon {
+  display: none;
+}
 
 /* Forms & inputs */
 .form {
@@ -2643,6 +2647,62 @@ tbody tr:hover {
   flex-wrap: wrap;
 }
 
+/* Space between the intro hints and whatever follows (form, notice or list) */
+.connections-intro {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  margin-bottom: var(--space-16);
+}
+
+/* Connection form: inline, one level of surface (no card inside the card) */
+.connection-form {
+  margin-bottom: var(--space-16);
+  padding: var(--space-16);
+  background: var(--surface-alt);
+  border: var(--border-width) solid var(--border);
+  border-radius: var(--radius-md);
+}
+.connection-form-title {
+  margin: 0;
+  font-size: var(--font-md);
+  overflow-wrap: anywhere;
+}
+.connection-form .field-wide {
+  grid-column: 1 / -1;
+}
+.connection-form .field-hint {
+  font-weight: 400;
+}
+.connection-form .notice {
+  margin: 0;
+}
+.input-group {
+  display: flex;
+  gap: var(--space-6);
+}
+.input-group .input {
+  flex: 1;
+  min-width: 0;
+}
+@media (pointer: coarse) {
+  .connection-form .input {
+    height: var(--control-lg);
+    font-size: var(--font-md); /* 16px stops iOS zooming on focus */
+  }
+}
+@media (max-width: 600px) {
+  .connection-form {
+    padding: var(--space-12);
+  }
+  .connection-form .form-actions .btn {
+    flex: 1 1 auto;
+  }
+  .connection-form .form-actions .btn-primary {
+    flex-basis: 100%;
+  }
+}
+
 /* Diagnostics */
 
 .session-card-list {
@@ -2887,6 +2947,23 @@ tbody tr:hover {
   .tab-panel {
       gap: var(--space-16);
     }
+}
+
+/* Collapsing buttons (shared): the label gives way to an icon on mobile.
+   Square like the other icon-only buttons: the height comes from the button
+   rules, so the width is derived from it rather than pinned. */
+@media (max-width: 768px) {
+  .btn-collapse {
+    width: auto;
+    aspect-ratio: 1 / 1;
+    padding: 0;
+  }
+  .btn-collapse-label {
+    display: none;
+  }
+  .btn-collapse-icon {
+    display: inline-block;
+  }
 }
 
 /* Touch input target sizing (topbar controls, login codes) */

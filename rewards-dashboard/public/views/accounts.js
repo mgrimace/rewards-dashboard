@@ -32,6 +32,7 @@ let batchRunning = false;
 // click on the confirm button actually deletes anything, so there's no way
 // to remove an account's dashboard data with a single accidental click.
 const deleteArmed = new Set();
+const deleteArmedAt = new Map(); // key -> when armed; see U.confirmReady
 const deleting = new Set();
 
 function statusFor(serverId) {
@@ -77,6 +78,7 @@ async function deleteAccount(account) {
   if (!context) return;
 
   deleteArmed.delete(account.key);
+  deleteArmedAt.delete(account.key);
   expandedFeatures.delete(account.key);
   deleting.add(account.key);
   render(rootEl);
@@ -276,12 +278,12 @@ function renderAccountPanel(a, live) {
   const deleteBlocked = displayStatus === "running" || launching.has(a.key);
   const deleteButton = a.archived ? "" : deleteArmed.has(a.key)
     ? `<span class="acc-delete-confirm">
-        <button type="button" class="btn btn-icon btn-small" data-cancel-delete="${U.escapeAttr(a.key)}" aria-label="Cancel delete" ${isDeleting ? "disabled" : ""} title="Cancel delete"><i class="ph ph-x" aria-hidden="true"></i></button>
-        <button type="button" class="btn btn-danger btn-icon btn-small" data-confirm-delete="${U.escapeAttr(a.key)}" aria-label="Confirm delete account" ${isDeleting ? "disabled" : ""} title="Permanently remove this account and its history from the dashboard">
+        <button type="button" class="btn btn-icon btn-small" data-cancel-delete="${U.escapeAttr(a.key)}" aria-label="Cancel remove" ${isDeleting ? "disabled" : ""} title="Cancel remove"><i class="ph ph-x" aria-hidden="true"></i></button>
+        <button type="button" class="btn btn-danger btn-icon btn-small" data-confirm-delete="${U.escapeAttr(a.key)}" aria-label="Confirm remove account" ${isDeleting ? "disabled" : ""} title="Permanently remove this account and its history from the dashboard">
           <i class="ph ph-trash" aria-hidden="true"></i>
         </button>
       </span>`
-    : `<button type="button" class="btn btn-danger btn-icon btn-small" data-arm-delete="${U.escapeAttr(a.key)}" aria-label="Delete account" ${deleteBlocked ? "disabled" : ""} title="${deleteBlocked ? "The account must be idle to delete it" : "Remove this account and its history from the dashboard"}"><i class="ph ph-trash" aria-hidden="true"></i></button>`;
+    : `<button type="button" class="btn btn-danger btn-small btn-collapse" data-arm-delete="${U.escapeAttr(a.key)}" aria-label="Remove account" ${deleteBlocked ? "disabled" : ""} title="${deleteBlocked ? "The account must be idle to delete it" : "Remove this account and its history from the dashboard"}"><i class="ph ph-trash btn-collapse-icon" aria-hidden="true"></i><span class="btn-collapse-label">Remove</span></button>`;
 
   const protectionChip = protection
     ? `<span class="account-rail-icon ${protection.pillClass}" role="img" aria-label="Streak protection ${protection.state.toLowerCase()}" title="Streak protection is ${protection.state.toLowerCase()}; ${U.escapeAttr(protection.days)}"><i class="ph ${a.streakProtectionEnabled ? "ph-shield-check" : "ph-shield"}" aria-hidden="true"></i></span>`
@@ -468,6 +470,7 @@ function render(root) {
   container.querySelectorAll("button[data-arm-delete]").forEach((btn) =>
     btn.addEventListener("click", () => {
       deleteArmed.add(btn.dataset.armDelete);
+      deleteArmedAt.set(btn.dataset.armDelete, performance.now());
       render(root);
     }),
   );
@@ -475,6 +478,7 @@ function render(root) {
   container.querySelectorAll("button[data-cancel-delete]").forEach((btn) =>
     btn.addEventListener("click", () => {
       deleteArmed.delete(btn.dataset.cancelDelete);
+      deleteArmedAt.delete(btn.dataset.cancelDelete);
       render(root);
     }),
   );
@@ -482,6 +486,7 @@ function render(root) {
   container.querySelectorAll("button[data-confirm-delete]").forEach((btn) =>
     btn.addEventListener("click", () => {
       const key = btn.dataset.confirmDelete;
+      if (!U.confirmReady(deleteArmedAt.get(key))) return;
       const account = accounts.find((a) => a.key === key);
       if (account) deleteAccount(account);
     }),

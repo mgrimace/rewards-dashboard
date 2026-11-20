@@ -1130,6 +1130,21 @@ async function handleApi(req, res, url) {
       pathname.slice("/api/dashboard-accounts/".length),
     );
     if (!email) return sendJson(res, 400, { error: "Missing account email" });
+    // Refuse while the account is part of an active run: the dashboard UI
+    // disables Remove in that case, but a run can start between render and
+    // click. The accounts view shows a 409 as a warning toast.
+    const target = email.trim().toLowerCase();
+    const same = (value) => typeof value === "string" && value.trim().toLowerCase() === target;
+    const state = currentState();
+    if (
+      state.botRunning &&
+      (store.snapshotAccounts().some((a) => same(a.email) && a.status === "running") ||
+        (state.bot?.run?.accounts || []).some((a) => same(a?.email) && a.success == null))
+    ) {
+      return sendJson(res, 409, {
+        error: "This account is part of a run in progress. Wait for it to finish or stop the run, then remove it.",
+      });
+    }
     try {
       store.deleteAccount(email);
       hub.broadcast("state", currentState());

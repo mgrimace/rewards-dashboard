@@ -32,5 +32,3 @@ yarn-error.log*
 # Development resources
 dev-resources/
 /rewards-dashboard/test/*
-!/rewards-dashboard/test/overviewView.test.js
-!/rewards-dashboard/test/serverPresentationViews.test.js
