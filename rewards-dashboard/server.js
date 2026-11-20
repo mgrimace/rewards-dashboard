@@ -21,6 +21,7 @@ const { ActivityStore } = require("./lib/activityStore");
 const { Connections, testConnection } = require("./lib/connections");
 const { credentialRedactor } = require("./lib/redact");
 const { migrateServerData, NO_LEGACY_SERVER } = require("./lib/serverDataMigration");
+const { backupBeforeMigration, exportLegacyDatabase } = require("./lib/legacyExport");
 
 // confg
 const PORT = Number(process.env.PORT || 8890);
@@ -73,6 +74,15 @@ for (const suffix of ["", "-wal", "-shm"]) {
 const db = new DatabaseSync(dbFile);
 db.exec("PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL; PRAGMA secure_delete = ON;");
 const hasScopedAccounts = db.prepare("PRAGMA table_info(accounts)").all().some((col) => col.name === "server_id");
+if (existingDatabase && !hasScopedAccounts) {
+  try {
+    const backup = backupBeforeMigration(db, dataDir);
+    log("info", `Pre-migration database backup created: ${backup}`);
+  } catch {
+    db.close();
+    throw new Error("Could not create the pre-migration database backup; migration was not started.");
+  }
+}
 let legacyStore = null;
 let connections;
 db.exec("BEGIN IMMEDIATE");
@@ -749,6 +759,20 @@ async function handleApi(req, res, url) {
       apiToken: Object.hasOwn(body, "apiToken") ? body.apiToken : saved?.token ?? "",
     });
     return sendJson(res, 200, result);
+  }
+
+  if (pathname.startsWith("/api/connections/") && pathname.endsWith("/export") && method === "POST") {
+    const id = decodeURIComponent(pathname.slice("/api/connections/".length, -"/export".length));
+    if (!id || id.includes("/") || !connections.get(id))
+      return sendJson(res, 404, { error: "Connection not found." });
+    try {
+      const filename = exportLegacyDatabase(db, dataDir, id);
+      return sendJson(res, 201, { filename });
+    } catch (error) {
+      log("error", "Could not export the single-server database.");
+      return sendJson(res, 500, { error: error.message === "The database contains unsupported historical columns."
+        ? error.message : "Could not export the single-server database. Check the data directory and database." });
+    }
   }
 
   if (pathname.startsWith("/api/connections/")) {

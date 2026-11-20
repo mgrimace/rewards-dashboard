@@ -88,6 +88,7 @@ function render() {
               <button type="button" class="btn btn-small" data-action="edit" data-id="${U.escapeAttr(connection.id)}">Edit</button>
               <button type="button" class="btn btn-small" data-action="test" data-id="${U.escapeAttr(connection.id)}">Test</button>
               <button type="button" class="btn btn-small" data-action="toggle" data-id="${U.escapeAttr(connection.id)}">${connection.enabled ? "Disable" : "Enable"}</button>
+              <button type="button" class="btn btn-small" data-action="export" data-id="${U.escapeAttr(connection.id)}" ${formOpen ? "disabled" : ""} title="Export this server's data for an older dashboard">Export</button>
               ${armedRemove === connection.id
                 ? `<span class="acc-delete-confirm">
                     <button type="button" class="btn btn-icon btn-small" data-action="cancel-remove" data-id="${U.escapeAttr(connection.id)}" aria-label="Cancel remove" title="Cancel remove"><i class="ph ph-x" aria-hidden="true"></i></button>
@@ -226,7 +227,7 @@ export default {
       const button = event.target.closest("button[data-action]");
       if (!button || busy || dragging) return;
       const { action, id } = button.dataset;
-      if (editing !== null && ["arm-remove", "cancel-remove", "remove"].includes(action)) return;
+      if (editing !== null && ["arm-remove", "cancel-remove", "remove", "export"].includes(action)) return;
       if (action === "remove" && !U.confirmReady(armedAt)) return;
       const connection = connections.find((item) => item.id === id);
       if (action === "toggle-token") {
@@ -269,6 +270,9 @@ export default {
         } else if (action === "toggle" && connection) {
           await context.api.updateConnection(id, { enabled: !connection.enabled });
           location.reload();
+        } else if (action === "export" && connection) {
+          const result = await context.api.exportConnection(id);
+          message(`Export saved in the data directory as ${result.filename}. Automatic run settings are preserved.`, true);
         } else if (action === "remove" && connection) {
           armedRemove = null;
           armedAt = null;

@@ -66,6 +66,8 @@ export const api = {
     call("PATCH", `/api/connections/${encodeURIComponent(id)}`, body, true),
   removeConnection: (id) =>
     call("DELETE", `/api/connections/${encodeURIComponent(id)}`, undefined, true),
+  exportConnection: (id) =>
+    call("POST", `/api/connections/${encodeURIComponent(id)}/export`, {}, true),
   reorderConnections: (ids) => call("PUT", "/api/connections/order", { ids }, true),
   testConnection: (body) => call("POST", "/api/connections/test", body, true),
   summary: () => call("GET", "/api/summary"),

@@ -64,7 +64,10 @@ npm start                 # http://localhost:8890
 > The initial `.env` connection is imported once as **Default Server**; manage later changes in **Connections**.
 
 > [!WARNING]
-> Back up `dashboard.sqlite` before upgrading; databases with custom schemas may require manual migration.
+> Stop the old dashboard before upgrading. A `dashboard-before-multiserver-*.sqlite` backup is saved in the data directory before migration; custom schemas may require manual migration.
+
+> [!TIP]
+> The Connections page can also generate an export of a single server to `dashboard-single-server-*.sqlite`. To roll back, stop the dashboard, move the current database and its `-wal`/`-shm` files aside, rename the backup or export to `dashboard.sqlite`, and configure that server in `.env`. Automatic-run schedules are preserved. Backups and exports can contain sensitive historical data.
 
 ## Authentication
 Dashboard login protection is configured separately with `DASHBOARD_USERNAME`
