@@ -1138,14 +1138,14 @@ export default {
             <p class="notice notice--warn" id="cfgNotice" hidden></p>
             <div id="cfgDrift" hidden></div>
 
-        <section class="panel cfg-reveal-banner" aria-labelledby="cfg-reveal-heading">
-          <div class="cfg-reveal-copy">
-            <h2 class="cfg-reveal-title" id="cfg-reveal-heading">Reveal secrets</h2>
-                    <p class="cfg-reveal-help">Enable viewing of sensitive secrets. Requires <code>API_ALLOW_CONFIG_REVEAL=true</code> on the control API.</p>
+        <section class="panel toggle-banner" aria-labelledby="cfg-reveal-heading">
+          <div class="toggle-banner-copy">
+            <h2 class="toggle-banner-title" id="cfg-reveal-heading">Reveal secrets</h2>
+                    <p class="toggle-banner-help">Enable viewing of sensitive secrets. Requires <code>API_ALLOW_CONFIG_REVEAL=true</code> on the control API.</p>
           </div>
-          <label class="cfg-reveal-toggle" title="Fetch webhook URLs and tokens from the control API">
+          <label class="toggle-banner-toggle" title="Fetch webhook URLs and tokens from the control API">
             <input type="checkbox" id="cfgReveal" role="switch" aria-label="Reveal secrets" disabled>
-            <span class="cfg-reveal-track" aria-hidden="true"></span>
+            <span class="toggle-banner-track" aria-hidden="true"></span>
             <span class="visually-hidden">Reveal secrets</span>
           </label>
         </section>

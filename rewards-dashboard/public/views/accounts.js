@@ -487,7 +487,6 @@ export default {
     context = ctx;
     root.innerHTML = `
       <p class="notice notice--warn" id="accountsError" hidden></p>
-      <label class="check"><input type="checkbox" id="accountsIncludeHistory"><span>Include removed and disabled servers (read-only)</span></label>
       <div class="panel batch-select-box" id="accountsBatchToolbar">
           <div class="batch-select-header">
               <h2 class="batch-select-title">Batch run</h2>
@@ -504,6 +503,16 @@ export default {
       <div id="accountsContainer">
           <p class="empty-note" style="padding:1.25rem">Loading accounts configuration details&hellip;</p>
       </div>
+      <section class="panel toggle-banner" aria-labelledby="accounts-history-heading">
+        <div class="toggle-banner-copy">
+          <h2 class="toggle-banner-title" id="accounts-history-heading">Include removed and disabled servers</h2>
+          <p class="toggle-banner-help">Show retained accounts as read-only.</p>
+        </div>
+        <label class="toggle-banner-toggle">
+          <input type="checkbox" id="accountsIncludeHistory" role="switch" aria-label="Include removed and disabled servers" ${includeHistory ? "checked" : ""}>
+          <span class="toggle-banner-track" aria-hidden="true"></span>
+        </label>
+      </section>
       <p class="hint" style="margin-top: 1.5rem;">Accounts are configured in the bot&rsquo;s <code>.env</code> (<code>ACCOUNT_N_*</code>).
       The control API exposes full local email addresses but never sends passwords, recovery addresses, TOTP secrets, or proxy credentials.</p>
     `;
