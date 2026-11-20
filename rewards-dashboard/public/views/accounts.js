@@ -1,6 +1,5 @@
 import * as U from "../util.js";
 import { combineAccounts, loadServers } from "../serverViews.js";
-import { lineChart } from "../charts.js";
 import {
   renderActivity,
   summaryChips,
@@ -19,7 +18,6 @@ let context = null;
 const launching = new Set();
 const selectedForBatch = new Set();
 const expandedAccounts = new Set();
-const expandedTrends = new Set();
 const expandedFeatures = new Set();
 const expandedActivity = new Set(); // "email|day|group" rows opened in the points table
 const selectedActivityDay = new Map(); // lower-cased email -> chosen Rewards day
@@ -357,12 +355,11 @@ function renderAccountPanel(a, live) {
             ${a.configured ? "" : '<span class="tag-mini">unconfigured</span>'}
           </div>
         </div>
-        <span class="acc-detail-actions">${selectCheckbox}${runButton}<button type="button" class="btn btn-small" data-account-trend="${U.escapeAttr(a.key)}" aria-expanded="${expandedTrends.has(a.key)}">Trend</button></span>
+        <span class="acc-detail-actions">${selectCheckbox}${runButton}</span>
       </div>
       <div class="panel-body account-detail-body" id="${detailsId}" ${isExpanded ? "" : "hidden"}>
         ${detailGroups(a, protection)}
       </div>
-      ${expandedTrends.has(a.key) ? `<div class="chart-wrap account-history-chart" data-history-chart="${U.escapeAttr(a.key)}" aria-label="Point history"></div>` : ""}
       <div class="account-secondary-row">
         <aside class="account-protection-rail" aria-label="Streak protection">${protectionChip}</aside>
         ${featureDetails}
@@ -451,21 +448,6 @@ function render(root) {
       render(root);
     }),
   );
-
-  container.querySelectorAll("button[data-account-trend]").forEach((btn) =>
-    btn.addEventListener("click", () => {
-      const key = btn.dataset.accountTrend;
-      if (expandedTrends.has(key)) expandedTrends.delete(key);
-      else expandedTrends.add(key);
-      render(root);
-    }),
-  );
-  container.querySelectorAll("[data-history-chart]").forEach((chart) => {
-    const history = accountsPayload.histories[chart.dataset.historyChart] || [];
-    lineChart(chart, history.map((entry) => ({
-      key: entry.ts.slice(0, 10), value: entry.points, label: U.fmtDateTime(entry.ts),
-    })), { emptyMessage: "No point history recorded for this account yet." });
-  });
 
   container.querySelectorAll("button[data-arm-delete]").forEach((btn) =>
     btn.addEventListener("click", () => {

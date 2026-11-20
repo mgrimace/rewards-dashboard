@@ -2,7 +2,7 @@
 
 const fs = require("node:fs");
 const { DatabaseSync } = require("node:sqlite");
-const { cleanHistoricalCredentials, CleanupInputError } = require("./lib/historicalCredentials");
+const { cleanHistoricalCredentials, CleanupInputError } = require("../lib/historicalCredentials");
 
 let db;
 try {
@@ -11,7 +11,7 @@ try {
   const fromStdin = args.includes("--stdin");
   const paths = args.filter((arg) => !["--apply", "--stdin"].includes(arg));
   if (paths.length !== 1 || paths[0].startsWith("-"))
-    throw new CleanupInputError("Usage: node clean-historical-credentials.js [--apply] [--stdin] DATABASE");
+    throw new CleanupInputError("Usage: node scripts/clean-historical-credentials.js [--apply] [--stdin] DATABASE");
   let supplied = {};
   if (fromStdin) {
     try { supplied = JSON.parse(fs.readFileSync(0, "utf8")); }

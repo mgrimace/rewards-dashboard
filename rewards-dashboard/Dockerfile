@@ -9,7 +9,7 @@ ENV DATA_DIR=/data
 
 COPY package.json ./
 COPY server.js ./
-COPY clean-historical-credentials.js ./
+COPY scripts ./scripts
 COPY lib ./lib
 COPY public ./public
 
