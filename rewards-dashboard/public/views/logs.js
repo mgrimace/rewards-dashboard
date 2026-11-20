@@ -13,6 +13,7 @@ let filterServer = "all";
 let servers = [];
 let loaded = new Set();
 let autoscroll = true;
+let hasRemovedHistory = false;
 
 const matches = (e) => {
   if (filterServer !== "all" && e.serverId !== filterServer) return false;
@@ -37,7 +38,7 @@ function lineHtml(e) {
     : "";
   return `<div class="log-line log-line--${U.escapeAttr(e.level)}">
         <span class="log-time">${U.escapeHtml(time)}</span>
-        <span class="log-server">${U.escapeHtml(e.serverName || e.serverId)}</span>
+        <span class="log-server${hasRemovedHistory ? "" : " multi-server-only"}">${U.escapeHtml(e.serverName || e.serverId)}</span>
         <span class="log-level log-level--${U.escapeAttr(e.level)}">${U.escapeHtml(e.level)}</span>
         <span class="log-tag">${U.escapeHtml(tag || "")}</span>
         ${account}
@@ -142,7 +143,7 @@ export default {
                 </div>
 
                 <div class="toolbar">
-                    <label class="field field--inline"><span>Server</span><select id="logServer" class="input"><option value="all">All servers</option></select></label>
+                    <label class="field field--inline multi-server-only" id="logServerField"><span>Server</span><select id="logServer" class="input"><option value="all">All servers</option></select></label>
                     <label class="field field--inline">
                         <span>Level</span>
                         <select id="logLevel" class="input">
@@ -166,7 +167,7 @@ export default {
                     <button type="button" id="logClear" class="btn">Clear</button>
                 </div>
                 <p class="notice notice--warn" id="logErrors" hidden></p>
-                <p class="hint">Removed and disabled servers show retained dashboard activity, not full upstream logs.</p>
+                <p class="hint multi-server-only" id="logHistoryHint">Removed and disabled servers show retained dashboard activity, not full upstream logs.</p>
 
                 <div class="log-box" id="logBox" tabindex="0" aria-live="off">
                     <p class="empty-note">Waiting for log lines\u2026</p>
@@ -286,4 +287,12 @@ async function load(ctx, limit, force) {
   const error = U.$("#logErrors", rootEl);
   error.hidden = !errors.length;
   error.textContent = errors.join(" · ");
+  const removedIds = new Set(servers.filter((server) => server.deletedAt).map((server) => server.id));
+  hasRemovedHistory = entries.some((entry) => removedIds.has(entry.serverId));
+  U.$("#logServerField", rootEl).classList.toggle("multi-server-only", !hasRemovedHistory);
+  U.$("#logHistoryHint", rootEl).classList.toggle("multi-server-only", !hasRemovedHistory);
+  if (!hasRemovedHistory && !document.documentElement.hasAttribute("data-multi-server")) {
+    filterServer = "all";
+    select.value = filterServer;
+  }
 }

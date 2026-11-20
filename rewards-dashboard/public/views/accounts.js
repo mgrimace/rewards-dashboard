@@ -385,10 +385,12 @@ function render(root) {
     return;
   }
 
+  const hasRemovedHistory = accounts.some((account) =>
+    groups.some((group) => group.server.id === account.serverId && group.server.deletedAt));
   container.innerHTML = accounts.map((a, index) => {
     const live = U.runAccountMap(statusFor(a.serverId)).get(a.email.trim().toLowerCase()) || null;
     const header = index === 0 || accounts[index - 1].serverId !== a.serverId
-      ? `<h2 class="account-server-heading">${U.escapeHtml(a.serverName)}</h2>` : "";
+      ? `<h2 class="account-server-heading${hasRemovedHistory ? "" : " multi-server-only"}">${U.escapeHtml(a.serverName)}</h2>` : "";
     return header + renderAccountPanel(a, live);
   }).join("");
 

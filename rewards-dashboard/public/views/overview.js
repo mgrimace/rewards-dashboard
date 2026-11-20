@@ -21,7 +21,7 @@ const launching = new Set();
 
 const NUMERIC = /^[+\-\u2013]?[\d,.]*$/;
 
-function statCard(id, value, unit, label, iconClass = "stat-icon-check", icon = "\u2713") {
+function statCard(id, value, unit, label, iconClass = "stat-icon-check", icon = "\u2713", serverName = null) {
   const small = NUMERIC.test(String(value).trim()) ? "" : " stat-value-sm";
   return `
         <div class="stat-card">
@@ -31,7 +31,7 @@ function statCard(id, value, unit, label, iconClass = "stat-icon-check", icon = 
             </div>
             <div class="stat-title-row">
                 <span class="${iconClass}" aria-hidden="true">${icon}</span>
-                <span class="stat-label">${U.escapeHtml(label)}</span>
+                <span class="stat-label">${U.escapeHtml(label)}${serverName ? `<span class="multi-server-only"> · ${U.escapeHtml(serverName)}</span>` : ""}</span>
             </div>
         </div>`;
 }
@@ -158,14 +158,15 @@ function renderStats(root) {
   U.$("#statGrid", root).innerHTML = [
     statCard("statAccounts", U.fmtNumber(totals.count), "profiles", "Accounts tracked"),
     statCard("statCombined", U.fmtNumber(totals.balance), "points", "Combined balance"),
-    statCard("statLastGained", lastRun ? U.fmtSigned(lastRun.totalGained) : "\u2013", "points", lastRun ? `Last run · ${lastRun.serverName}` : "Points earned last run"),
+    statCard("statLastGained", lastRun ? U.fmtSigned(lastRun.totalGained) : "\u2013", "points", lastRun ? "Last run" : "Points earned last run", "stat-icon-check", "\u2713", lastRun?.serverName),
     statCard(
       "statLastRun",
       anyRunning ? "Running now" : lastRun ? U.fmtRelative(lastRun.endTs || lastRun.startTs) : "\u2013",
       anyRunning ? "" : "timestamp",
-      lastRun && !anyRunning ? `Last run · ${lastRun.serverName}` : "Last run",
+      "Last run",
       anyRunning ? "stat-icon-running" : "stat-icon-check",
       anyRunning ? "\u25CF" : "\u2713",
+      lastRun && !anyRunning ? lastRun.serverName : null,
     ),
     statCard(
       "statErrors",
@@ -339,7 +340,7 @@ function renderAccountRows(root) {
     const label = current?.botRunning ? "Running" : current?.reachable ? (current.botOutcome || "Idle") : "Unavailable";
     const progress = run?.accountsTotal ? ` · ${run.accountsSeen || 0}/${run.accountsTotal} accounts` : "";
     const rows = rowsByServer.get(group.server.id);
-    return `<h3 class="server-group-heading">${U.escapeHtml(group.server.name)} <span class="server-group-status">· ${U.escapeHtml(label + progress)}</span></h3>${rows.length ? rows.join("") : '<p class="empty-note" style="padding:1.25rem">No accounts configured or observed yet.</p>'}`;
+    return `<h3 class="server-group-heading multi-server-only">${U.escapeHtml(group.server.name)} <span class="server-group-status">· ${U.escapeHtml(label + progress)}</span></h3>${rows.length ? rows.join("") : '<p class="empty-note" style="padding:1.25rem">No accounts configured or observed yet.</p>'}`;
   }).join("");
 
   // The timeline view is a rolling recent-history strip, so scrolling it to
@@ -382,7 +383,7 @@ function renderTrend() {
 
   const history = (accountsPayload?.histories || {})[selected] || [];
   const account = accountsPayload?.accounts?.find((item) => item.key === selected);
-  U.$("#ovwTrendName", rootEl).textContent = account ? `${account.serverName} · ${account.email}` : selected;
+  U.$("#ovwTrendName", rootEl).innerHTML = account ? `<span class="multi-server-only">${U.escapeHtml(account.serverName)} · </span>${U.escapeHtml(account.email)}` : U.escapeHtml(selected);
 
   lineChart(
     U.$("#ovwTrendChart", rootEl),

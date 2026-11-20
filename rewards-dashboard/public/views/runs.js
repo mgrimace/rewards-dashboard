@@ -12,6 +12,12 @@ let showAllRuns = false;
 let loadingMore = false;
 let refreshSequence = 0;
 
+function hasRemovedHistory() {
+  return groups.some((group) => group.server.deletedAt &&
+    ((group.runs?.runs || []).length || (group.runs?.exits || []).length ||
+      Object.values(group.accounts?.histories || {}).some((history) => history.length)));
+}
+
 function dailyBars() {
   const totals = new Map();
 
@@ -64,10 +70,11 @@ function isInformative(r) {
 function renderRuns() {
   const runs = (runsPayload?.runs || []).filter((run) => (serverFilter === "all" || run.serverId === serverFilter) && (showAllRuns || isInformative(run)));
   const body = U.$("#runsBody", rootEl);
+  const serverClass = hasRemovedHistory() ? "" : ' class="multi-server-only"';
 
   if (!runs.length) {
     body.innerHTML =
-      '<tr><td colspan="8" class="empty-note">No runs recorded yet.</td></tr>';
+      `<tr><td colspan="${!serverClass || document.documentElement.hasAttribute("data-multi-server") ? 8 : 7}" class="empty-note">No runs recorded yet.</td></tr>`;
     return;
   }
 
@@ -82,7 +89,7 @@ function renderRuns() {
             )
             : "\u2013";
       return `<tr>
-                <td>${U.escapeHtml(r.serverName)}</td>
+                <td${serverClass}>${U.escapeHtml(r.serverName)}</td>
                 <td>${U.statusPill(r.status, r.outcome ? `Script reported: ${r.outcome}` : "")}</td>
                 <td>${U.escapeHtml(U.fmtDateTime(r.startTs || r.endTs))}</td>
                 <td>${U.escapeHtml(duration)}</td>
@@ -150,7 +157,7 @@ function renderExits() {
       return `<li class="exit-item">
                 <button type="button" class="exit-head" data-exit="${i}" aria-expanded="${isOpen}">
                     ${exitPill(run)}
-                    <span>${U.escapeHtml(run.serverName)}</span>
+                    <span${hasRemovedHistory() ? "" : ' class="multi-server-only"'}>${U.escapeHtml(run.serverName)}</span>
                     <span class="exit-when">${U.escapeHtml(U.fmtDateTime(run.endedAt || run.startedAt))}</span>
                     <span class="exit-meta">${U.fmtSigned(run.collected || 0)} pts \u00b7 ${ok} ok${stopped ? ` \u00b7 ${stopped} stopped` : ""}${failed ? ` \u00b7 ${failed} failed` : ""}</span>
                     <span class="exit-chevron" aria-hidden="true">${isOpen ? "\u25BE" : "\u25B8"}</span>
@@ -177,7 +184,7 @@ export default {
   mount(root, ctx) {
     rootEl = root;
     root.innerHTML = `
-            <label class="field field--inline"><span>Server</span><select id="runsServer" class="input"><option value="all">All servers</option></select></label>
+            <label class="field field--inline multi-server-only" id="runsServerField"><span>Server</span><select id="runsServer" class="input"><option value="all">All servers</option></select></label>
             <section class="panel" aria-labelledby="runs-chart-heading">
                 <div class="panel-head">
                     <h2 id="runs-chart-heading">Points per day</h2>
@@ -202,7 +209,7 @@ export default {
                     <table>
                         <thead>
                             <tr>
-                                <th>Server</th><th>Status</th><th>Started</th><th>Duration</th>
+                                <th id="runsServerHeading" class="multi-server-only">Server</th><th>Status</th><th>Started</th><th>Duration</th>
                                 <th>Accounts</th><th>Gained</th><th>New total</th><th>Version</th>
                             </tr>
                         </thead>
@@ -277,8 +284,12 @@ export default {
       const current = new Set(group.runs.runs.map((run) => run.id));
       group.runs.runs.push(...older.filter((run) => !current.has(run.id)));
     }
+    const hasRemoved = hasRemovedHistory();
+    U.$("#runsServerField", rootEl).classList.toggle("multi-server-only", !hasRemoved);
+    U.$("#runsServerHeading", rootEl).classList.toggle("multi-server-only", !hasRemoved);
     const select = U.$("#runsServer", rootEl);
     if (serverFilter !== "all" && !groups.some((group) => group.server.id === serverFilter)) serverFilter = "all";
+    if (!hasRemoved && !document.documentElement.hasAttribute("data-multi-server")) serverFilter = "all";
     select.innerHTML = '<option value="all">All servers</option>' + groups.map(({ server }) =>
       `<option value="${U.escapeAttr(server.id)}">${U.escapeHtml(server.name)}${server.deletedAt ? " (removed)" : !server.enabled ? " (disabled)" : ""}</option>`).join("");
     select.value = serverFilter;

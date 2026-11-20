@@ -1,3 +1,7 @@
+export function setServerPresentation(servers, root) {
+  root.toggleAttribute("data-multi-server", servers.filter((server) => !server.deletedAt).length >= 2);
+}
+
 export function accountKey(serverId, accountKey) {
   return JSON.stringify([serverId, accountKey]);
 }

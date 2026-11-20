@@ -95,7 +95,7 @@ Two features are gated on the _API_ side, and are off by default:
 > Drag a connection's handle to reorder it, or focus the handle and use the arrow keys.
 
 > [!TIP]
-> Select a server in the control strip for run controls, Schedule, Config and Diagnostics; Overview and Accounts combine enabled servers.
+> With multiple configured servers, select a server in the control strip for run controls, Schedule, Config and Diagnostics; Overview and Accounts combine enabled servers.
 
 **Overview** - stat cards (accounts, combined balance, last run, accounts in error, next scheduled run), run progress and per-account rows.
 

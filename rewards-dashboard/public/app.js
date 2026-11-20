@@ -9,6 +9,7 @@ import {
 } from "./themeManager.js";
 
 import { api, invalidate, selectedServer, selectServer } from "./api.js";
+import { setServerPresentation } from "./serverViews.js";
 import * as U from "./util.js";
 
 import overview from "./views/overview.js";
@@ -72,6 +73,7 @@ const state = {
   serverCodes: new Map(),
   serverNames: new Map(),
   servers: [],
+  configuredCount: 0,
   codes: [],
   activeTab: null,
   streamOpen: false,
@@ -237,6 +239,7 @@ function connectStream() {
 
   es.addEventListener("open", () => {
     state.streamOpen = true;
+    renderStatusBadge();
   });
 
   es.addEventListener("state", (e) => {
@@ -273,9 +276,15 @@ function connectStream() {
       location.reload();
       return;
     }
+    if (!selectedServer() && list.length === 1 && list[0].enabled) {
+      selectServer(list[0].id);
+      location.reload();
+      return;
+    }
     renderServerSelect(list);
     if (state.activeTab === "connections") refreshActive(true);
     currentView()?.onConnections?.(list, ctx);
+    if (["overview", "accounts", "runs"].includes(state.activeTab)) refreshActive(true);
   });
 
   es.onerror = () => {
@@ -306,7 +315,11 @@ function renderStatusBadge() {
 
   if (!selectedServer() && state.streamOpen) {
     badge.classList.add("status-unknown");
-    els.statusText.textContent = "Select a server for controls";
+    els.statusText.textContent = state.configuredCount === 0
+      ? "Add a server in Connections"
+      : state.configuredCount === 1 && state.servers.length === 0
+        ? "Enable the server in Connections"
+        : "Select a server for controls";
   } else if (!state.streamOpen && !s) {
     badge.classList.add("status-down");
     els.statusText.textContent = "Dashboard server unreachable";
@@ -521,7 +534,7 @@ function renderCodes() {
                     <div class="login-code-number">${U.escapeHtml(c.number)}</div>
                     <div class="login-code-info">
                         <span class="login-code-name">${U.escapeHtml(c.userName)}</span>
-                        <span class="login-code-name">${U.escapeHtml(c.serverName)}</span>
+                        <span class="login-code-name multi-server-only">${U.escapeHtml(c.serverName)}</span>
                         <span class="login-code-countdown ${secsLeft <= 15 ? "urgent" : ""}">Expires in ${secsLeft}s</span>
                     </div>
                 </div>`;
@@ -532,6 +545,8 @@ function renderCodes() {
 // init
 
 function renderServerSelect(list) {
+  setServerPresentation(list, document.documentElement);
+  state.configuredCount = list.length;
   const enabled = list.filter((item) => item.enabled);
   state.servers = enabled;
   state.serverNames = new Map(enabled.map((item) => [item.id, item.name]));
@@ -545,6 +560,7 @@ function renderServerSelect(list) {
     codes.map((code) => ({ ...code, serverId: id, serverName: state.serverNames.get(id) || id })));
   renderCodes();
   renderServerTarget();
+  renderStatusBadge();
 }
 
 function renderServerTarget() {
@@ -574,7 +590,7 @@ function mountTargetContent(panel) {
   const content = document.createElement("div");
   content.dataset.targetContent = "";
   while (panel.firstChild) content.appendChild(panel.firstChild);
-  panel.innerHTML = `<p class="empty-note">Select an enabled server in the control bar to use this tab.</p>`;
+  panel.innerHTML = `<p class="empty-note">Select an enabled server in the control bar, or enable one in Connections, to use this tab.</p>`;
   panel.appendChild(content);
 }
 

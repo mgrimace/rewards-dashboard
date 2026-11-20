@@ -177,6 +177,10 @@ body {
   display: none !important;
 }
 
+html:not([data-multi-server]) .multi-server-only {
+  display: none !important;
+}
+
 body {
   background: var(--canvas);
   color: var(--text);
