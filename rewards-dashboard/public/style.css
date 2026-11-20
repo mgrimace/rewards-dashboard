@@ -3221,6 +3221,11 @@ tbody tr:hover {
       padding-left: calc(var(--control-lg) + var(--space-12));
     }
   }
+  @media (max-width: 374px) {
+    .connection-actions {
+      padding-left: 0;
+    }
+  }
 
   /* Activity summary chips: icons and counts only. The words stay for screen
      readers (same technique as .visually-hidden) and in the tooltip. */

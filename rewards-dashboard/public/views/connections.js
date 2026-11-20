@@ -88,7 +88,7 @@ function render() {
               <button type="button" class="btn btn-small" data-action="edit" data-id="${U.escapeAttr(connection.id)}">Edit</button>
               <button type="button" class="btn btn-small" data-action="test" data-id="${U.escapeAttr(connection.id)}">Test</button>
               <button type="button" class="btn btn-small" data-action="toggle" data-id="${U.escapeAttr(connection.id)}">${connection.enabled ? "Disable" : "Enable"}</button>
-              <button type="button" class="btn btn-small" data-action="export" data-id="${U.escapeAttr(connection.id)}" ${formOpen ? "disabled" : ""} title="Export this server's data for an older dashboard">Export</button>
+              <button type="button" class="btn btn-small btn-collapse" data-action="export" data-id="${U.escapeAttr(connection.id)}" aria-label="Export ${U.escapeAttr(connection.name)}" ${formOpen ? "disabled" : ""} title="Export this server's data for an older dashboard"><i class="ph ph-export btn-collapse-icon" aria-hidden="true"></i><span class="btn-collapse-label">Export</span></button>
               ${armedRemove === connection.id
                 ? `<span class="acc-delete-confirm">
                     <button type="button" class="btn btn-icon btn-small" data-action="cancel-remove" data-id="${U.escapeAttr(connection.id)}" aria-label="Cancel remove" title="Cancel remove"><i class="ph ph-x" aria-hidden="true"></i></button>
